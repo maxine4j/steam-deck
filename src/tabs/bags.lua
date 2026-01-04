@@ -472,7 +472,6 @@ end
 
 -- Initialize the tab
 function BagsTab:Initialize(panel, contentFrame)
-
     self.id = "bags"
     self.name = "Bags"
     self.panel = panel

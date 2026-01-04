@@ -1,8 +1,8 @@
 -- Currencies Tab Module
 -- Handles currency display with two-column layout
 
-SteamDeckCharacterCurrenciesTab = {}
-local CurrenciesTab = SteamDeckCharacterCurrenciesTab
+SteamDeckCurrenciesTab = {}
+local CurrenciesTab = SteamDeckCurrenciesTab
 
 -- Configuration
 local CURRENCY_ENTRY_HEIGHT = 34
@@ -10,9 +10,10 @@ local CURRENCY_ICON_SIZE = 32
 local CURRENCY_HEADER_HEIGHT = 30
 local REP_TAB_HEIGHT = 45
 local REP_TAB_SPACING = 2
+local FRAME_PADDING = 20
 
 -- Create currency entry
-local function CreateCurrencyEntry(parent, currencyData, yOffset, leftPadding, rightPadding, FRAME_PADDING)
+local function CreateCurrencyEntry(parent, currencyData, yOffset, leftPadding, rightPadding)
     local entry = CreateFrame("Button", nil, parent)
     entry:SetHeight(CURRENCY_ENTRY_HEIGHT)
     leftPadding = leftPadding or FRAME_PADDING
@@ -114,7 +115,7 @@ local function UpdateCurrencyEntry(entry)
 end
 
 -- Create currency header entry
-local function CreateCurrencyHeader(parent, currencyData, yOffset, hasChildren, leftPadding, rightPadding, FRAME_PADDING)
+local function CreateCurrencyHeader(parent, currencyData, yOffset, hasChildren, leftPadding, rightPadding, tab)
     local header = CreateFrame(hasChildren and "Frame" or "Button", nil, parent)
     header:SetHeight(CURRENCY_HEADER_HEIGHT)
     leftPadding = leftPadding or FRAME_PADDING
@@ -154,9 +155,8 @@ local function CreateCurrencyHeader(parent, currencyData, yOffset, hasChildren, 
             else
                 C_CurrencyInfo.ExpandCurrencyList(currencyData.currencyIndex, true)
             end
-            local characterPanel = SteamDeckPanelModule and SteamDeckPanelModule:GetPanel("character")
-            if characterPanel and characterPanel.currencyContainer then
-                characterPanel.currencyContainer:UpdateCurrency()
+            if tab and tab.content and tab.content.currencyContainer and tab.content.currencyContainer.UpdateCurrency then
+                tab.content.currencyContainer:UpdateCurrency()
             end
         end)
     end
@@ -164,33 +164,31 @@ local function CreateCurrencyHeader(parent, currencyData, yOffset, hasChildren, 
     return header
 end
 
--- Tab state
-local panel = nil
-local content = nil
-
 -- Initialize currencies tab
-function CurrenciesTab.Initialize(panelFrame, contentFrame)
-    local FRAME_PADDING = 20
+function CurrenciesTab:Initialize(panel, contentFrame)
+    local tab = self
     
-    -- Store references
-    panel = panelFrame
-    content = contentFrame
+    -- Set tab properties
+    self.id = "currencies"
+    self.name = "Currencies"
+    self.panel = panel
+    self.content = contentFrame
     
-    if not content then
+    if not self.content then
         return
     end
     
-    -- Ensure content frame is hidden initially
-    content:Hide()
-    
     -- Create all UI elements in the content frame
-    local currencyContent = content
+    local currencyContent = self.content
     
     local totalWidth = currencyContent:GetWidth()
+    if totalWidth <= 0 then
+        totalWidth = 600 - (2 * FRAME_PADDING)
+    end
     local paneSpacing = 5
     local availableWidth = totalWidth - paneSpacing
-    local leftPaneWidth = availableWidth * 0.4
-    local rightPaneWidth = availableWidth * 0.6
+    local leftPaneWidth = availableWidth * 0.35
+    local rightPaneWidth = availableWidth * 0.65
     
     local leftPane = CreateFrame("Frame", nil, currencyContent)
     leftPane:SetWidth(leftPaneWidth)
@@ -206,9 +204,10 @@ function CurrenciesTab.Initialize(panelFrame, contentFrame)
     leftScrollFrame:SetScrollChild(leftContentFrame)
     
     local rightPane = CreateFrame("Frame", nil, currencyContent)
-    rightPane:SetWidth(rightPaneWidth)
     rightPane:SetPoint("TOPLEFT", leftPane, "TOPRIGHT", paneSpacing, 0)
     rightPane:SetPoint("BOTTOMRIGHT", currencyContent, "BOTTOMRIGHT", 0, 0)
+    -- Get actual width after anchoring
+    rightPaneWidth = rightPane:GetWidth()
     
     local rightScrollFrame = CreateFrame("ScrollFrame", nil, rightPane)
     rightScrollFrame:SetPoint("TOPLEFT", rightPane, "TOPLEFT", 0, 0)
@@ -406,7 +405,7 @@ function CurrenciesTab.Initialize(panelFrame, contentFrame)
         end
     end
     
-    local function CreateCategoryButton(parent, categoryData, index, yOffset, isSelected, paneWidth, FRAME_PADDING)
+    local function CreateCategoryButton(parent, categoryData, index, yOffset, isSelected, paneWidth)
         local button = CreateFrame("Button", nil, parent)
         button:SetHeight(REP_TAB_HEIGHT)
         button:SetPoint("TOPLEFT", parent, "TOPLEFT", FRAME_PADDING, yOffset)
@@ -492,8 +491,7 @@ function CurrenciesTab.Initialize(panelFrame, contentFrame)
         end
         
         local leftPadding = 5
-        local scrollBarWidth = 20
-        local rightPadding = 5 + scrollBarWidth
+        local rightPadding = 5
         
         local normalCurrencies = {}
         local headerGroups = {}
@@ -538,12 +536,12 @@ function CurrenciesTab.Initialize(panelFrame, contentFrame)
                 currencyListDepth = 0,
                 currencyID = 0
             }
-            CreateCurrencyHeader(rightContentFrame, fakeCurrencyData, yOffset, true, leftPadding, rightPadding, FRAME_PADDING)
+            CreateCurrencyHeader(rightContentFrame, fakeCurrencyData, yOffset, true, leftPadding, rightPadding, tab)
             yOffset = yOffset - CURRENCY_HEADER_HEIGHT
         end
         
         for _, currencyData in ipairs(normalCurrencies) do
-            local entry = CreateCurrencyEntry(rightContentFrame, currencyData, yOffset, leftPadding, rightPadding, FRAME_PADDING)
+            local entry = CreateCurrencyEntry(rightContentFrame, currencyData, yOffset, leftPadding, rightPadding)
             UpdateCurrencyEntry(entry)
             yOffset = yOffset - CURRENCY_ENTRY_HEIGHT
         end
@@ -551,11 +549,11 @@ function CurrenciesTab.Initialize(panelFrame, contentFrame)
         for _, group in ipairs(headerGroups) do
             local headerSpacing = 16
             yOffset = yOffset - headerSpacing
-            local header = CreateCurrencyHeader(rightContentFrame, group.header, yOffset, true, leftPadding, rightPadding, FRAME_PADDING)
+            local header = CreateCurrencyHeader(rightContentFrame, group.header, yOffset, true, leftPadding, rightPadding, tab)
             yOffset = yOffset - CURRENCY_HEADER_HEIGHT
             
             for _, currencyData in ipairs(group.children) do
-                local entry = CreateCurrencyEntry(rightContentFrame, currencyData, yOffset, leftPadding, rightPadding, FRAME_PADDING)
+                local entry = CreateCurrencyEntry(rightContentFrame, currencyData, yOffset, leftPadding, rightPadding)
                 UpdateCurrencyEntry(entry)
                 yOffset = yOffset - CURRENCY_ENTRY_HEIGHT
             end
@@ -583,7 +581,7 @@ function CurrenciesTab.Initialize(panelFrame, contentFrame)
         local yOffset = -FRAME_PADDING
         for i = 1, #categories do
             local isSelected = (i == selectedCategoryIndex)
-            local button = CreateCategoryButton(leftContentFrame, categories[i], i, yOffset, isSelected, leftPaneWidth, FRAME_PADDING)
+            local button = CreateCategoryButton(leftContentFrame, categories[i], i, yOffset, isSelected, leftPaneWidth)
             
             button:SetScript("OnClick", function()
                 selectedCategoryIndex = i
@@ -623,22 +621,30 @@ function CurrenciesTab.Initialize(panelFrame, contentFrame)
     
     local container = CreateFrame("Frame", nil, currencyContent)
     container.UpdateCurrency = UpdateCurrency
-    content.currencyContainer = container
+    self.content.currencyContainer = container
+    
+    -- Register for currency update events
+    self.eventFrame = CreateFrame("Frame")
+    self.eventFrame:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
+    self.eventFrame:RegisterEvent("PLAYER_MONEY")
+    self.eventFrame:SetScript("OnEvent", function()
+        if tab.content and tab.content:IsShown() then
+            UpdateCurrency()
+        end
+    end)
     
     UpdateCurrency()
 end
 
 -- OnShow callback
-function CurrenciesTab.OnShow()
-    if content and content.currencyContainer and content.currencyContainer.UpdateCurrency then
-        content.currencyContainer:UpdateCurrency()
+function CurrenciesTab:OnShow()
+    if self.content and self.content.currencyContainer and self.content.currencyContainer.UpdateCurrency then
+        self.content.currencyContainer:UpdateCurrency()
     end
 end
 
 -- OnHide callback
-function CurrenciesTab.OnHide()
-    if content then
-        content:Hide()
-    end
+function CurrenciesTab:OnHide()
 end
 
+return CurrenciesTab

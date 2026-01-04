@@ -15,7 +15,7 @@ function SteamDeckAddon:OnInitialize()
     SteamDeckPanels:CreatePanel("Left", "left", PANEL_WIDTH, {
         SteamDeckEquipmentTab,
         SteamDeckReputationTab,
-        -- SteamDeckCharacterCurrenciesTab,
+        SteamDeckCurrenciesTab,
     })
 end
 

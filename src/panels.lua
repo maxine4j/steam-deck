@@ -81,7 +81,7 @@ function SteamDeckPanels:CreatePanel(panelId, side, width, tabs)
     panel.activeTabId = nil
 
     for _, tabModule in ipairs(tabs) do
-        panel:RegisterTab(tabModule)
+        panel:RegisterTab(panel, tabModule)
     end
 
     return panel
@@ -155,6 +155,7 @@ function SteamDeckPanels:RegisterTab(tabModule)
     self:RepositionTabButtons()
 
     self.tabs[tabModule.id] = {
+        order = #self.tabs,
         id = tabModule.id,
         module = tabModule,
         button = tabButton,
@@ -164,8 +165,10 @@ end
 
 function SteamDeckPanels:RepositionTabButtons()
     -- Collect all tab buttons from the data structure
+    local tabs = self.tabs
+    table.sort(tabs, function(a, b) return a.order < b.order end)
     local tabButtons = {}
-    for tabId, tabData in pairs(self.tabs) do
+    for tabId, tabData in pairs(tabs) do
         if tabData.button then
             table.insert(tabButtons, tabData.button)
         end
