@@ -8,6 +8,12 @@ SteamDeck.modules = {}
 function SteamDeck:OnInitialize()
     print("SteamDeck addon loaded!")
     
+    -- Initialize interface cursor first (other modules may depend on it)
+    if SteamDeckInterfaceCursorModule then
+        SteamDeck.modules.interfacecursor = SteamDeckInterfaceCursorModule
+        SteamDeck.modules.interfacecursor:Initialize()
+    end
+    
     -- Initialize modules
     if SteamDeckBagsModule then
         SteamDeck.modules.bags = SteamDeckBagsModule

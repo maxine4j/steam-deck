@@ -602,6 +602,11 @@ local function RefreshBags()
         -- Update current Y position for next section
         currentY = currentY - sectionData.sectionHeight
     end
+    
+    -- Register grid with interface cursor
+    if SteamDeckInterfaceCursorModule then
+        SteamDeckInterfaceCursorModule:RegisterBagsGrid(bagSlots, categorySections)
+    end
 end
 
 -- Open the bags frame
@@ -612,6 +617,13 @@ function BagsModule:Open()
     
     isOpen = true
     bagsFrame:Show()
+    
+    -- Activate interface cursor for bags BEFORE refreshing
+    -- This ensures currentModule is set when RegisterBagsGrid is called
+    if SteamDeckInterfaceCursorModule then
+        SteamDeckInterfaceCursorModule:Activate("bags")
+    end
+    
     RefreshBags()
 end
 
@@ -622,6 +634,11 @@ function BagsModule:Close()
         isOpen = false
         -- Ensure default bags stay hidden when we close
         HideAllDefaultBags()
+        
+        -- Deactivate interface cursor
+        if SteamDeckInterfaceCursorModule then
+            SteamDeckInterfaceCursorModule:Deactivate()
+        end
     end
 end
 

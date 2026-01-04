@@ -10,4 +10,5 @@ src/modules/character/module.lua
 src/modules/character/tabs/equipment.lua
 src/modules/character/tabs/reputation.lua
 src/modules/character/tabs/currencies.lua
+src/modules/interfacecursor/module.lua
 
