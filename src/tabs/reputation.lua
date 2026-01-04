@@ -1,8 +1,8 @@
 -- Reputation Tab Module
 -- Handles reputation display with two-column layout
 
-SteamDeckCharacterReputationTab = {}
-local ReputationTab = SteamDeckCharacterReputationTab
+SteamDeckReputationTab = {}
+local ReputationTab = SteamDeckReputationTab
 
 -- Configuration
 local REP_ENTRY_HEIGHT = 56
@@ -11,6 +11,7 @@ local REP_HEADER_HEIGHT = 30
 local REP_TAB_HEIGHT = 45
 local REP_TAB_SPACING = 2
 local MAX_REPUTATION_REACTION = 8
+local FRAME_PADDING = 20
 
 -- Reputation type detection
 local ReputationType = {
@@ -59,7 +60,7 @@ local function GetReputationBarColor(reaction)
 end
 
 -- Create a reputation entry
-local function CreateReputationEntry(parent, factionData, yOffset, isChild, leftPadding, rightPadding, FRAME_PADDING)
+local function CreateReputationEntry(parent, factionData, yOffset, isChild, leftPadding, rightPadding)
     local entry = CreateFrame("Frame", nil, parent)
     entry:SetHeight(REP_ENTRY_HEIGHT)
     leftPadding = leftPadding or FRAME_PADDING
@@ -228,7 +229,7 @@ local function UpdateReputationEntry(entry)
 end
 
 -- Create reputation header entry
-local function CreateReputationHeader(parent, factionData, yOffset, hasChildren, leftPadding, rightPadding, FRAME_PADDING)
+local function CreateReputationHeader(parent, factionData, yOffset, hasChildren, leftPadding, rightPadding, tab)
     local header = CreateFrame(hasChildren and "Frame" or "Button", nil, parent)
     header:SetHeight(REP_HEADER_HEIGHT)
     leftPadding = leftPadding or FRAME_PADDING
@@ -264,43 +265,41 @@ local function CreateReputationHeader(parent, factionData, yOffset, hasChildren,
             else
                 C_Reputation.CollapseFactionHeader(factionData.factionIndex)
             end
-                   if content and content.reputationContainer and content.reputationContainer.UpdateReputation then
-                       content.reputationContainer:UpdateReputation()
-                   end
+            if tab and tab.content and tab.content.reputationContainer and tab.content.reputationContainer.UpdateReputation then
+                tab.content.reputationContainer:UpdateReputation()
+            end
         end)
     end
     
     return header
 end
 
--- Tab state
-local panel = nil
-local content = nil
-
 -- Initialize reputation tab
-function ReputationTab.Initialize(panelFrame, contentFrame)
-    local FRAME_PADDING = 20
+function ReputationTab:Initialize(panel, contentFrame)
+    local tab = self
     
-    -- Store references
-    panel = panelFrame
-    content = contentFrame
+    -- Set tab properties
+    self.id = "reputation"
+    self.name = "Reputation"
+    self.panel = panel
+    self.content = contentFrame
     
-    if not content then
+    if not self.content then
         return
     end
     
-    -- Ensure content frame is hidden initially
-    content:Hide()
-    
     -- Create all UI elements in the content frame
-    local reputationContent = content
+    local reputationContent = self.content
     
-    -- Calculate pane widths (split 40/60 with spacing between)
+    -- Calculate pane widths (split 35/65 with spacing between for wider reputation list)
     local totalWidth = reputationContent:GetWidth()
+    if totalWidth <= 0 then
+        totalWidth = 600 - (2 * FRAME_PADDING)
+    end
     local paneSpacing = 5
     local availableWidth = totalWidth - paneSpacing
-    local leftPaneWidth = availableWidth * 0.4
-    local rightPaneWidth = availableWidth * 0.6
+    local leftPaneWidth = availableWidth * 0.35
+    local rightPaneWidth = availableWidth * 0.65
     
     -- Left pane: Expansion list
     local leftPane = CreateFrame("Frame", nil, reputationContent)
@@ -316,11 +315,12 @@ function ReputationTab.Initialize(panelFrame, contentFrame)
     leftContentFrame:SetWidth(leftPaneWidth)
     leftScrollFrame:SetScrollChild(leftContentFrame)
     
-    -- Right pane: Reputation list
+    -- Right pane: Reputation list - extends to right edge
     local rightPane = CreateFrame("Frame", nil, reputationContent)
-    rightPane:SetWidth(rightPaneWidth)
     rightPane:SetPoint("TOPLEFT", leftPane, "TOPRIGHT", paneSpacing, 0)
     rightPane:SetPoint("BOTTOMRIGHT", reputationContent, "BOTTOMRIGHT", 0, 0)
+    -- Get actual width after anchoring
+    rightPaneWidth = rightPane:GetWidth()
     
     local rightScrollFrame = CreateFrame("ScrollFrame", nil, rightPane)
     rightScrollFrame:SetPoint("TOPLEFT", rightPane, "TOPLEFT", 0, 0)
@@ -428,7 +428,7 @@ function ReputationTab.Initialize(panelFrame, contentFrame)
         end
     end
     
-    local function CreateExpansionButton(parent, expansionData, index, yOffset, isSelected, paneWidth, FRAME_PADDING)
+    local function CreateExpansionButton(parent, expansionData, index, yOffset, isSelected, paneWidth)
         local button = CreateFrame("Button", nil, parent)
         button:SetHeight(REP_TAB_HEIGHT)
         button:SetPoint("TOPLEFT", parent, "TOPLEFT", FRAME_PADDING, yOffset)
@@ -514,8 +514,7 @@ function ReputationTab.Initialize(panelFrame, contentFrame)
         end
         
         local leftPadding = 5
-        local scrollBarWidth = 20
-        local rightPadding = 5 + scrollBarWidth
+        local rightPadding = 5
         
         local normalReps = {}
         local headerGroups = {}
@@ -560,13 +559,13 @@ function ReputationTab.Initialize(panelFrame, contentFrame)
                 isChild = false,
                 factionID = 0
             }
-            CreateReputationHeader(rightContentFrame, fakeFactionData, yOffset, true, leftPadding, rightPadding, FRAME_PADDING)
+            CreateReputationHeader(rightContentFrame, fakeFactionData, yOffset, true, leftPadding, rightPadding, tab)
             yOffset = yOffset - REP_HEADER_HEIGHT
         end
         
         for _, repData in ipairs(normalReps) do
             local isChild = repData.isChild or false
-            local entry = CreateReputationEntry(rightContentFrame, repData, yOffset, isChild, leftPadding, rightPadding, FRAME_PADDING)
+            local entry = CreateReputationEntry(rightContentFrame, repData, yOffset, isChild, leftPadding, rightPadding)
             UpdateReputationEntry(entry)
             yOffset = yOffset - REP_ENTRY_HEIGHT
         end
@@ -574,12 +573,12 @@ function ReputationTab.Initialize(panelFrame, contentFrame)
         for _, group in ipairs(headerGroups) do
             local headerSpacing = 16
             yOffset = yOffset - headerSpacing
-            local header = CreateReputationHeader(rightContentFrame, group.header, yOffset, true, leftPadding, rightPadding, FRAME_PADDING)
+            local header = CreateReputationHeader(rightContentFrame, group.header, yOffset, true, leftPadding, rightPadding, tab)
             yOffset = yOffset - REP_HEADER_HEIGHT
             
             for _, repData in ipairs(group.children) do
                 local isChild = repData.isChild or false
-                local entry = CreateReputationEntry(rightContentFrame, repData, yOffset, isChild, leftPadding, rightPadding, FRAME_PADDING)
+                local entry = CreateReputationEntry(rightContentFrame, repData, yOffset, isChild, leftPadding, rightPadding)
                 UpdateReputationEntry(entry)
                 yOffset = yOffset - REP_ENTRY_HEIGHT
             end
@@ -607,7 +606,7 @@ function ReputationTab.Initialize(panelFrame, contentFrame)
         local yOffset = -FRAME_PADDING
         for i = 1, #expansions do
             local isSelected = (i == selectedExpansionIndex)
-            local button = CreateExpansionButton(leftContentFrame, expansions[i], i, yOffset, isSelected, leftPaneWidth, FRAME_PADDING)
+            local button = CreateExpansionButton(leftContentFrame, expansions[i], i, yOffset, isSelected, leftPaneWidth)
             
             button:SetScript("OnClick", function()
                 selectedExpansionIndex = i
@@ -647,22 +646,30 @@ function ReputationTab.Initialize(panelFrame, contentFrame)
     
     local container = CreateFrame("Frame", nil, reputationContent)
     container.UpdateReputation = UpdateReputation
-    content.reputationContainer = container
+    self.content.reputationContainer = container
+    
+    -- Register for reputation update events
+    self.eventFrame = CreateFrame("Frame")
+    self.eventFrame:RegisterEvent("UPDATE_FACTION")
+    self.eventFrame:RegisterEvent("CHAT_MSG_COMBAT_FACTION_CHANGE")
+    self.eventFrame:SetScript("OnEvent", function()
+        if tab.content and tab.content:IsShown() then
+            UpdateReputation()
+        end
+    end)
     
     UpdateReputation()
 end
 
 -- OnShow callback
-function ReputationTab.OnShow()
-    if content and content.reputationContainer and content.reputationContainer.UpdateReputation then
-        content.reputationContainer:UpdateReputation()
+function ReputationTab:OnShow()
+    if self.content and self.content.reputationContainer and self.content.reputationContainer.UpdateReputation then
+        self.content.reputationContainer:UpdateReputation()
     end
 end
 
 -- OnHide callback
-function ReputationTab.OnHide()
-    if content then
-        content:Hide()
-    end
+function ReputationTab:OnHide()
 end
 
+return ReputationTab
