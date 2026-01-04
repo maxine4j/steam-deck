@@ -13,6 +13,11 @@ function SteamDeck:OnInitialize()
         SteamDeck.modules.bags = SteamDeckBagsModule
         SteamDeck.modules.bags:Initialize()
     end
+    
+    if SteamDeckCharacterModule then
+        SteamDeck.modules.character = SteamDeckCharacterModule
+        SteamDeck.modules.character:Initialize()
+    end
 end
 
 -- Register events
