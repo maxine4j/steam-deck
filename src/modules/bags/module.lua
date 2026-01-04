@@ -5,6 +5,7 @@ SteamDeckBagsModule = {}
 local BagsModule = SteamDeckBagsModule
 local bagsFrame = nil
 local bagSlots = {}
+local categorySections = {}
 local isOpen = false
 
 -- Configuration
@@ -14,6 +15,8 @@ local SLOT_SPACING = 4
 local FRAME_PADDING = 20
 local GRID_PADDING = 10
 local GRID_MARGIN = 20
+local SECTION_HEADER_HEIGHT = 24
+local SECTION_SPACING = 12
 
 -- Store original functions
 local originalToggleBackpack = nil
@@ -229,6 +232,96 @@ local function CreateBagSlot(parent, slotIndex)
     return slot
 end
 
+-- Determine the category for an item
+local function GetItemCategory(bagID, slotID, itemInfo)
+    if not itemInfo or not itemInfo.hyperlink then
+        return "Other"
+    end
+    
+    local itemID = itemInfo.itemID
+    if not itemID then
+        return "Other"
+    end
+    
+    -- Get detailed item info
+    local itemName, itemLink, itemQuality, itemLevel, itemMinLevel, itemType, itemSubType, itemStackCount, 
+          itemEquipLoc, itemTexture, sellPrice, classID, subclassID, bindType, expacID, setID, isCraftingReagent = 
+          C_Item.GetItemInfo(itemID)
+    
+    if not classID then
+        return "Other"
+    end
+    
+    -- Check for quest items first (highest priority)
+    local questInfo = C_Container.GetContainerItemQuestInfo(bagID, slotID)
+    if questInfo and questInfo.isQuestItem then
+        return "Quest"
+    end
+    
+    -- Check for gear (equippable items) - check before consumables since some gear can be consumed
+    if itemEquipLoc and itemEquipLoc ~= "" and itemEquipLoc ~= "INVTYPE_NON_EQUIP_IGNORE" then
+        return "Gear"
+    end
+    
+    -- Check for trade goods (tradeskills)
+    if classID == Enum.ItemClass.Tradegoods then
+        return "Tradeskills"
+    end
+    
+    -- Check for consumables
+    if classID == Enum.ItemClass.Consumable then
+        -- Check if it might be a reputation item
+        -- Reputation items are often consumables with specific subtypes
+        -- We'll check the item name pattern or use a simple heuristic
+        -- Many reputation items have "Reputation" in their name or are in "Other" subtype
+        if itemSubType == "Other" or (itemName and string.find(itemName:lower(), "reputation")) then
+            return "Reputation"
+        end
+        return "Consumable"
+    end
+    
+    -- Check for reputation items in Miscellaneous class
+    if classID == Enum.ItemClass.Miscellaneous then
+        -- Many reputation items are in Miscellaneous
+        if itemSubType == "Other" or (itemName and string.find(itemName:lower(), "reputation")) then
+            return "Reputation"
+        end
+    end
+    
+    -- Default to Other
+    return "Other"
+end
+
+-- Create a category section header
+local function CreateCategorySection(parent, categoryName)
+    local section = {}
+    
+    -- Main section frame
+    local frame = CreateFrame("Frame", nil, parent)
+    frame:SetHeight(SECTION_HEADER_HEIGHT)
+    section.frame = frame
+    
+    -- Section title
+    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("LEFT", frame, "LEFT", 0, 0)
+    title:SetText(categoryName)
+    title:SetTextColor(1, 1, 1, 1)
+    section.title = title
+    
+    -- Section background
+    local bg = frame:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints(frame)
+    bg:SetColorTexture(0.1, 0.1, 0.1, 0.5)
+    section.bg = bg
+    
+    -- Container for items in this category
+    local itemContainer = CreateFrame("Frame", nil, parent)
+    section.itemContainer = itemContainer
+    section.items = {}
+    
+    return section
+end
+
 -- Update a single slot with item data
 local function UpdateSlot(slot, bagID, slotID)
     local itemInfo = C_Container.GetContainerItemInfo(bagID, slotID)
@@ -269,14 +362,40 @@ local function RefreshBags()
         return
     end
     
-    -- First pass: collect all slots that have items
-    local itemsWithSlots = {}
+    -- Clear existing slots and sections
+    for _, slot in ipairs(bagSlots) do
+        slot:Hide()
+    end
+    wipe(bagSlots)
+    
+    for categoryName, section in pairs(categorySections) do
+        if section.frame then
+            section.frame:Hide()
+        end
+        if section.itemContainer then
+            section.itemContainer:Hide()
+        end
+        if section.items then
+            for _, slot in ipairs(section.items) do
+                slot:Hide()
+            end
+            wipe(section.items)
+        end
+    end
+    wipe(categorySections)
+    
+    -- First pass: collect all slots that have items and categorize them
+    local itemsByCategory = {}
     for bagID = 0, 4 do
         local numSlots = C_Container.GetContainerNumSlots(bagID) or 0
         for slotID = 1, numSlots do
             local itemInfo = C_Container.GetContainerItemInfo(bagID, slotID)
             if itemInfo and itemInfo.iconFileID then
-                table.insert(itemsWithSlots, {
+                local category = GetItemCategory(bagID, slotID, itemInfo)
+                if not itemsByCategory[category] then
+                    itemsByCategory[category] = {}
+                end
+                table.insert(itemsByCategory[category], {
                     bagID = bagID,
                     slotID = slotID,
                     itemInfo = itemInfo
@@ -285,56 +404,105 @@ local function RefreshBags()
         end
     end
     
-    local totalItems = #itemsWithSlots
+    -- Category display order
+    local categoryOrder = {"Gear", "Tradeskills", "Consumable", "Reputation", "Quest", "Other"}
     
-    -- Calculate grid dimensions based on items, not total slots
-    local numRows = math.ceil(totalItems / SLOTS_PER_ROW)
-    local actualCols = math.min(SLOTS_PER_ROW, totalItems)
-    local gridWidth = (actualCols * SLOT_SIZE) + ((actualCols - 1) * SLOT_SPACING)
-    local gridHeight = (numRows * SLOT_SIZE) + ((numRows - 1) * SLOT_SPACING)
+    local containerWidth = bagsFrame.container:GetWidth()
+    local containerHeight = bagsFrame.container:GetHeight()
     
-    -- Clear existing slots
-    for _, slot in ipairs(bagSlots) do
-        slot:Hide()
+    -- Ensure we have valid dimensions
+    if containerWidth <= 0 or containerHeight <= 0 then
+        return
     end
-    wipe(bagSlots)
     
-    -- Create and position slots only for items
-    for slotIndex, itemData in ipairs(itemsWithSlots) do
-        local slot = bagSlots[slotIndex]
-        if not slot then
-            slot = CreateBagSlot(bagsFrame.container, slotIndex)
+    -- First pass: Calculate total height of all sections
+    local totalHeight = 0
+    local sectionsToCreate = {}
+    for _, categoryName in ipairs(categoryOrder) do
+        local categoryItems = itemsByCategory[categoryName]
+        if categoryItems and #categoryItems > 0 then
+            local numItems = #categoryItems
+            local numRows = math.ceil(numItems / SLOTS_PER_ROW)
+            local gridHeight = (numRows * SLOT_SIZE) + ((numRows - 1) * SLOT_SPACING)
+            local sectionHeight = SECTION_HEADER_HEIGHT + gridHeight + SECTION_SPACING
+            
+            table.insert(sectionsToCreate, {
+                categoryName = categoryName,
+                categoryItems = categoryItems,
+                gridHeight = gridHeight,
+                sectionHeight = sectionHeight
+            })
+            
+            totalHeight = totalHeight + sectionHeight
+        end
+    end
+    
+    -- Calculate starting Y position to center all sections vertically
+    local startY = -(containerHeight - totalHeight) / 2
+    
+    local currentY = startY
+    local slotIndex = 1
+    
+    -- Second pass: Create and position sections
+    for _, sectionData in ipairs(sectionsToCreate) do
+        local categoryName = sectionData.categoryName
+        local categoryItems = sectionData.categoryItems
+        local gridHeight = sectionData.gridHeight
+        
+        -- Create or get section for this category
+        local section = categorySections[categoryName]
+        if not section then
+            section = CreateCategorySection(bagsFrame.container, categoryName)
+            categorySections[categoryName] = section
         end
         
-        -- Calculate position
-        local row = math.floor((slotIndex - 1) / SLOTS_PER_ROW)
-        local col = (slotIndex - 1) % SLOTS_PER_ROW
+        -- Position section header
+        section.frame:SetPoint("TOPLEFT", bagsFrame.container, "TOPLEFT", GRID_MARGIN, currentY)
+        section.frame:SetPoint("TOPRIGHT", bagsFrame.container, "TOPRIGHT", -GRID_MARGIN, currentY)
+        section.frame:Show()
         
-        local x = col * (SLOT_SIZE + SLOT_SPACING)
-        local y = -row * (SLOT_SIZE + SLOT_SPACING)
+        -- Calculate grid dimensions for this category
+        local numItems = #categoryItems
+        local numRows = math.ceil(numItems / SLOTS_PER_ROW)
+        local actualCols = math.min(SLOTS_PER_ROW, numItems)
+        local gridWidth = (actualCols * SLOT_SIZE) + ((actualCols - 1) * SLOT_SPACING)
         
-        -- Center the grid both horizontally and vertically with margin
-        local containerWidth = bagsFrame.container:GetWidth()
-        local containerHeight = bagsFrame.container:GetHeight()
+        -- Position item container below section header
+        section.itemContainer:SetPoint("TOPLEFT", section.frame, "BOTTOMLEFT", 0, -SECTION_SPACING)
+        section.itemContainer:SetPoint("TOPRIGHT", section.frame, "BOTTOMRIGHT", 0, -SECTION_SPACING)
+        section.itemContainer:SetHeight(gridHeight)
+        section.itemContainer:Show()
         
-        -- Ensure we have valid dimensions
-        if containerWidth <= 0 or containerHeight <= 0 then
-            return
+        -- Left-align the grid
+        local offsetX = 0
+        
+        -- Create and position slots for items in this category
+        for itemIndex, itemData in ipairs(categoryItems) do
+            local slot = bagSlots[slotIndex]
+            if not slot then
+                slot = CreateBagSlot(section.itemContainer, slotIndex)
+            end
+            
+            -- Calculate position within category grid
+            local row = math.floor((itemIndex - 1) / SLOTS_PER_ROW)
+            local col = (itemIndex - 1) % SLOTS_PER_ROW
+            
+            local x = col * (SLOT_SIZE + SLOT_SPACING) + offsetX
+            local y = -row * (SLOT_SIZE + SLOT_SPACING)
+            
+            slot:SetPoint("TOPLEFT", section.itemContainer, "TOPLEFT", x, y)
+            slot:Show()
+            
+            -- Update slot with item data
+            UpdateSlot(slot, itemData.bagID, itemData.slotID)
+            
+            table.insert(section.items, slot)
+            bagSlots[slotIndex] = slot
+            slotIndex = slotIndex + 1
         end
         
-        -- Account for margin on all sides
-        local availableWidth = containerWidth - (2 * GRID_MARGIN)
-        local availableHeight = containerHeight - (2 * GRID_MARGIN)
-        local offsetX = (availableWidth - gridWidth) / 2 + GRID_MARGIN
-        local offsetY = (availableHeight - gridHeight) / 2 + GRID_MARGIN
-        
-        slot:SetPoint("TOPLEFT", bagsFrame.container, "TOPLEFT", x + offsetX, y - offsetY)
-        slot:Show()
-        
-        -- Update slot with item data
-        UpdateSlot(slot, itemData.bagID, itemData.slotID)
-        
-        bagSlots[slotIndex] = slot
+        -- Update current Y position for next section
+        currentY = currentY - sectionData.sectionHeight
     end
 end
 
