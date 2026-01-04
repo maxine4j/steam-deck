@@ -5,6 +5,9 @@
 ## Version: 1.0.0
 
 src/main.lua
-src/modules/bags.lua
-src/modules/character.lua
+src/modules/bags/module.lua
+src/modules/character/module.lua
+src/modules/character/tabs/equipment.lua
+src/modules/character/tabs/reputation.lua
+src/modules/character/tabs/currencies.lua
 

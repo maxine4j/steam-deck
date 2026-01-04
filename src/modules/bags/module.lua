@@ -147,11 +147,41 @@ local function CreateBagSlot(parent, slotIndex)
     bg:SetAllPoints(slot)
     bg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
     
-    -- Border (needs to be behind the item icon)
-    local border = slot:CreateTexture(nil, "BORDER")
-    border:SetAllPoints(slot)
-    border:SetTexture("Interface\\Buttons\\UI-EmptySlot")
-    slot.border = border
+    -- Create custom border edges (similar to equipment slots)
+    local borderThickness = 2
+    local borderColor = {0.5, 0.5, 0.5, 0.8}
+    
+    local borderTop = slot:CreateTexture(nil, "BORDER")
+    borderTop:SetSize(SLOT_SIZE, borderThickness)
+    borderTop:SetPoint("TOPLEFT", slot, "TOPLEFT", 0, 0)
+    borderTop:SetPoint("TOPRIGHT", slot, "TOPRIGHT", 0, 0)
+    borderTop:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
+    
+    local borderBottom = slot:CreateTexture(nil, "BORDER")
+    borderBottom:SetSize(SLOT_SIZE, borderThickness)
+    borderBottom:SetPoint("BOTTOMLEFT", slot, "BOTTOMLEFT", 0, 0)
+    borderBottom:SetPoint("BOTTOMRIGHT", slot, "BOTTOMRIGHT", 0, 0)
+    borderBottom:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
+    
+    local borderLeft = slot:CreateTexture(nil, "BORDER")
+    borderLeft:SetSize(borderThickness, SLOT_SIZE)
+    borderLeft:SetPoint("TOPLEFT", slot, "TOPLEFT", 0, 0)
+    borderLeft:SetPoint("BOTTOMLEFT", slot, "BOTTOMLEFT", 0, 0)
+    borderLeft:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
+    
+    local borderRight = slot:CreateTexture(nil, "BORDER")
+    borderRight:SetSize(borderThickness, SLOT_SIZE)
+    borderRight:SetPoint("TOPRIGHT", slot, "TOPRIGHT", 0, 0)
+    borderRight:SetPoint("BOTTOMRIGHT", slot, "BOTTOMRIGHT", 0, 0)
+    borderRight:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
+    
+    -- Store border references for easy updating
+    slot.border = {
+        top = borderTop,
+        bottom = borderBottom,
+        left = borderLeft,
+        right = borderRight
+    }
     
     -- Item texture (on ARTWORK layer, which is above BORDER)
     local itemTexture = slot:CreateTexture(nil, "ARTWORK")
@@ -162,9 +192,21 @@ local function CreateBagSlot(parent, slotIndex)
     
     -- Count text
     local count = slot:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+    local countFont, countFontSize = count:GetFont()
+    count:SetFont(countFont, countFontSize * 1.5, "THICKOUTLINE")  -- Increase font size by 1.5x with thick outline
     count:SetPoint("BOTTOMRIGHT", slot, "BOTTOMRIGHT", -2, 2)
     count:SetJustifyH("RIGHT")
     slot.count = count
+    
+    -- Item level text (positioned at bottom center, only for equipment)
+    local itemLevelText = slot:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+    local font, fontSize = itemLevelText:GetFont()
+    itemLevelText:SetFont(font, fontSize * 2, "THICKOUTLINE")  -- Increase font size by 2x with thick outline
+    itemLevelText:SetPoint("BOTTOM", slot, "BOTTOM", 0, 2)
+    itemLevelText:SetJustifyH("CENTER")
+    itemLevelText:SetTextColor(1, 1, 1, 1)
+    itemLevelText:Hide()
+    slot.itemLevelText = itemLevelText
     
     -- Tooltip
     slot:SetScript("OnEnter", function(self)
@@ -338,11 +380,52 @@ local function UpdateSlot(slot, bagID, slotID)
         end
         
         -- Quality border color
-        if itemInfo.quality and itemInfo.quality > 0 then
-            local r, g, b = GetItemQualityColor(itemInfo.quality)
-            slot.border:SetVertexColor(r, g, b, 1)
-        else
-            slot.border:SetVertexColor(1, 1, 1, 1)
+        if slot.border and type(slot.border) == "table" then
+            slot.border.top:Show()
+            slot.border.bottom:Show()
+            slot.border.left:Show()
+            slot.border.right:Show()
+            
+            local borderColor = {0.5, 0.5, 0.5, 0.8}  -- Default gray
+            if itemInfo.quality and itemInfo.quality > 0 then
+                local r, g, b = GetItemQualityColor(itemInfo.quality)
+                borderColor = {r, g, b, 1.0}  -- Full opacity for quality borders
+            end
+            
+            -- Apply quality color to all border edges
+            slot.border.top:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
+            slot.border.bottom:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
+            slot.border.left:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
+            slot.border.right:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
+        end
+        
+        -- Show item level only for equipment items
+        if slot.itemLevelText then
+            local itemLink = itemInfo.hyperlink
+            if itemLink then
+                -- Check if item is equipment
+                local itemID = itemInfo.itemID
+                if itemID then
+                    local _, _, _, _, _, _, _, _, itemEquipLoc = C_Item.GetItemInfo(itemID)
+                    if itemEquipLoc and itemEquipLoc ~= "" and itemEquipLoc ~= "INVTYPE_NON_EQUIP_IGNORE" then
+                        -- Item is equipment, show item level
+                        local itemLevel = C_Item.GetDetailedItemLevelInfo(itemLink)
+                        if itemLevel and itemLevel > 0 then
+                            slot.itemLevelText:SetText(tostring(itemLevel))
+                            slot.itemLevelText:Show()
+                        else
+                            slot.itemLevelText:Hide()
+                        end
+                    else
+                        -- Not equipment, hide item level
+                        slot.itemLevelText:Hide()
+                    end
+                else
+                    slot.itemLevelText:Hide()
+                end
+            else
+                slot.itemLevelText:Hide()
+            end
         end
         
         slot.itemLink = itemInfo.hyperlink
@@ -351,7 +434,22 @@ local function UpdateSlot(slot, bagID, slotID)
     else
         slot.itemTexture:Hide()
         slot.count:Hide()
-        slot.border:SetVertexColor(1, 1, 1, 1)
+        -- Hide item level when slot is empty
+        if slot.itemLevelText then
+            slot.itemLevelText:Hide()
+        end
+        -- Show default gray border when slot is empty
+        if slot.border and type(slot.border) == "table" then
+            slot.border.top:Show()
+            slot.border.bottom:Show()
+            slot.border.left:Show()
+            slot.border.right:Show()
+            local borderColor = {0.5, 0.5, 0.5, 0.8}
+            slot.border.top:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
+            slot.border.bottom:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
+            slot.border.left:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
+            slot.border.right:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
+        end
         slot.itemLink = nil
     end
 end
