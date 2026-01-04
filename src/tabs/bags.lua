@@ -1,141 +1,17 @@
--- SteamDeck Bags Module
--- Replaces default bag UI with a custom right-side frame
+-- Bags Tab Module
+-- Handles bag item display and organization
 
-SteamDeckBagsModule = {}
-local BagsModule = SteamDeckBagsModule
-local bagsFrame = nil
-local bagSlots = {}
-local categorySections = {}
-local isOpen = false
+SteamDeckBagsTab = {}
+local BagsTab = SteamDeckBagsTab
 
 -- Configuration
 local SLOTS_PER_ROW = 8
 local SLOT_SIZE = 48
 local SLOT_SPACING = 4
-local FRAME_PADDING = 20
-local GRID_PADDING = 10
 local GRID_MARGIN = 20
 local SECTION_HEADER_HEIGHT = 24
 local SECTION_SPACING = 12
-
--- Store original functions
-local originalToggleBackpack = nil
-local originalOpenBackpack = nil
-local originalToggleAllBags = nil
-
--- Hide all default bag frames
-local function HideAllDefaultBags()
-    -- Hide all container frames (they're numbered)
-    for i = 1, 13 do
-        local frame = _G["ContainerFrame"..i]
-        if frame then
-            frame:UnregisterAllEvents()
-            frame:Hide()
-        end
-    end
-    
-    -- Hide the main backpack button
-    if MainMenuBarBackpackButton then
-        MainMenuBarBackpackButton:Hide()
-    end
-    
-    -- Hide bag slots
-    for i = 0, 3 do
-        local bagButton = _G["CharacterBag"..i.."Slot"]
-        if bagButton then
-            bagButton:Hide()
-        end
-    end
-end
-
--- Override ToggleBackpack
-local function OverrideToggleBackpack()
-    -- Prevent default bag behavior immediately
-    HideAllDefaultBags()
-    -- Toggle our custom bags
-    BagsModule:Toggle()
-    -- Ensure default bags stay hidden
-    HideAllDefaultBags()
-    -- Don't call the original function - we've completely replaced it
-end
-
--- Override OpenBackpack
-local function OverrideOpenBackpack()
-    HideAllDefaultBags()
-    -- Use toggle behavior so pressing B again closes the bags
-    BagsModule:Toggle()
-end
-
--- Override ToggleAllBags
-local function OverrideToggleAllBags()
-    HideAllDefaultBags()
-    BagsModule:Toggle()
-end
-
--- Create the main bags frame
-local function CreateBagsFrame()
-    local frame = CreateFrame("Frame", "SteamDeckBagsFrame", UIParent)
-    
-    -- Calculate frame width based on maximum grid width (8 slots per row)
-    -- Max grid width = (SLOTS_PER_ROW * SLOT_SIZE) + ((SLOTS_PER_ROW - 1) * SLOT_SPACING)
-    local maxGridWidth = (SLOTS_PER_ROW * SLOT_SIZE) + ((SLOTS_PER_ROW - 1) * SLOT_SPACING)
-    -- Frame width = grid width + frame padding on both sides + grid margin on both sides
-    local frameWidth = maxGridWidth + (2 * FRAME_PADDING) + (2 * GRID_MARGIN)
-    frame:SetWidth(frameWidth)
-    
-    -- Anchor to right side and full height of screen
-    frame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", 0, 0)
-    frame:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", 0, 0)
-    
-    -- Set strata to HIGH so it appears above other UI elements but doesn't block input
-    -- Using HIGH instead of DIALOG prevents it from acting like a modal dialog
-    frame:SetFrameStrata("HIGH")
-    frame:SetFrameLevel(100)
-    
-    -- Don't enable mouse on the main frame - it covers too much area and blocks other UI
-    -- Mouse interaction will be handled by the individual bag slot buttons (which are Buttons)
-    frame:EnableMouse(false)
-    
-    -- Don't enable keyboard - we handle toggle through function override
-    -- This prevents the frame from blocking all keyboard input
-    frame:EnableKeyboard(false)
-    
-    -- Keep isOpen state in sync with frame visibility
-    frame:SetScript("OnShow", function()
-        isOpen = true
-    end)
-    frame:SetScript("OnHide", function()
-        isOpen = false
-        HideAllDefaultBags()
-    end)
-    
-    -- Ensure frame is not draggable
-    frame:SetMovable(false)
-    
-    -- Background (extends to right edge of screen)
-    local bg = frame:CreateTexture(nil, "BACKGROUND")
-    bg:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-    bg:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
-    bg:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
-    bg:SetColorTexture(0, 0, 0, 0.8)
-    
-    -- Title
-    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOP", frame, "TOP", 0, -10)
-    title:SetText("Bags")
-    
-    -- Container for slots
-    local container = CreateFrame("Frame", nil, frame)
-    container:SetPoint("TOP", title, "BOTTOM", 0, -20)
-    container:SetPoint("LEFT", frame, "LEFT", FRAME_PADDING, 0)
-    container:SetPoint("RIGHT", frame, "RIGHT", -FRAME_PADDING, 0)
-    container:SetPoint("BOTTOM", frame, "BOTTOM", 0, FRAME_PADDING)
-    
-    frame.container = container
-    frame:Hide()
-    
-    return frame
-end
+local CATEGORIES = {"Gear", "Tradeskills", "Consumable", "Reputation", "Quest", "Other"}
 
 -- Create a single bag slot button
 local function CreateBagSlot(parent, slotIndex)
@@ -147,7 +23,7 @@ local function CreateBagSlot(parent, slotIndex)
     bg:SetAllPoints(slot)
     bg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
     
-    -- Create custom border edges (similar to equipment slots)
+    -- Create custom border edges
     local borderThickness = 2
     local borderColor = {0.5, 0.5, 0.5, 0.8}
     
@@ -175,7 +51,6 @@ local function CreateBagSlot(parent, slotIndex)
     borderRight:SetPoint("BOTTOMRIGHT", slot, "BOTTOMRIGHT", 0, 0)
     borderRight:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
     
-    -- Store border references for easy updating
     slot.border = {
         top = borderTop,
         bottom = borderBottom,
@@ -183,7 +58,7 @@ local function CreateBagSlot(parent, slotIndex)
         right = borderRight
     }
     
-    -- Item texture (on ARTWORK layer, which is above BORDER)
+    -- Item texture
     local itemTexture = slot:CreateTexture(nil, "ARTWORK")
     itemTexture:SetPoint("TOPLEFT", slot, "TOPLEFT", 2, -2)
     itemTexture:SetPoint("BOTTOMRIGHT", slot, "BOTTOMRIGHT", -2, 2)
@@ -193,15 +68,15 @@ local function CreateBagSlot(parent, slotIndex)
     -- Count text
     local count = slot:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
     local countFont, countFontSize = count:GetFont()
-    count:SetFont(countFont, countFontSize * 1.5, "THICKOUTLINE")  -- Increase font size by 1.5x with thick outline
+    count:SetFont(countFont, countFontSize * 1.5, "THICKOUTLINE")
     count:SetPoint("BOTTOMRIGHT", slot, "BOTTOMRIGHT", -2, 2)
     count:SetJustifyH("RIGHT")
     slot.count = count
     
-    -- Item level text (positioned at bottom center, only for equipment)
+    -- Item level text
     local itemLevelText = slot:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
     local font, fontSize = itemLevelText:GetFont()
-    itemLevelText:SetFont(font, fontSize * 2, "THICKOUTLINE")  -- Increase font size by 2x with thick outline
+    itemLevelText:SetFont(font, fontSize * 2, "THICKOUTLINE")
     itemLevelText:SetPoint("BOTTOM", slot, "BOTTOM", 0, 2)
     itemLevelText:SetJustifyH("CENTER")
     itemLevelText:SetTextColor(1, 1, 1, 1)
@@ -230,28 +105,22 @@ local function CreateBagSlot(parent, slotIndex)
         end
         
         if button == "LeftButton" then
-            -- Check if we're targeting a spell with an item
             if SpellCanTargetItem() or SpellCanTargetItemID() then
-                -- Use the item to target the spell
                 C_Container.UseContainerItem(self.bagID, self.slotID)
             else
-                -- Pick up the item (or swap if cursor has item)
                 C_Container.PickupContainerItem(self.bagID, self.slotID)
             end
         elseif button == "RightButton" then
-            -- Right-click to use item (if usable)
             if self.itemLink then
                 C_Container.UseContainerItem(self.bagID, self.slotID)
             end
         end
     end)
     
-    -- Drag start - pick up the item when dragging begins
     slot:SetScript("OnDragStart", function(self)
         if not self.bagID or not self.slotID then
             return
         end
-        -- Same logic as left-click - pick up the item
         if SpellCanTargetItem() or SpellCanTargetItemID() then
             C_Container.UseContainerItem(self.bagID, self.slotID)
         else
@@ -259,12 +128,10 @@ local function CreateBagSlot(parent, slotIndex)
         end
     end)
     
-    -- Receive drag - handle when item is dropped on this slot
     slot:SetScript("OnReceiveDrag", function(self)
         if not self.bagID or not self.slotID then
             return
         end
-        -- If cursor has an item, place it in this slot (or swap)
         if CursorHasItem() then
             C_Container.PickupContainerItem(self.bagID, self.slotID)
         end
@@ -285,7 +152,6 @@ local function GetItemCategory(bagID, slotID, itemInfo)
         return "Other"
     end
     
-    -- Get detailed item info
     local itemName, itemLink, itemQuality, itemLevel, itemMinLevel, itemType, itemSubType, itemStackCount, 
           itemEquipLoc, itemTexture, sellPrice, classID, subclassID, bindType, expacID, setID, isCraftingReagent = 
           C_Item.GetItemInfo(itemID)
@@ -294,43 +160,32 @@ local function GetItemCategory(bagID, slotID, itemInfo)
         return "Other"
     end
     
-    -- Check for quest items first (highest priority)
     local questInfo = C_Container.GetContainerItemQuestInfo(bagID, slotID)
     if questInfo and questInfo.isQuestItem then
         return "Quest"
     end
     
-    -- Check for gear (equippable items) - check before consumables since some gear can be consumed
     if itemEquipLoc and itemEquipLoc ~= "" and itemEquipLoc ~= "INVTYPE_NON_EQUIP_IGNORE" then
         return "Gear"
     end
     
-    -- Check for trade goods (tradeskills)
     if classID == Enum.ItemClass.Tradegoods then
         return "Tradeskills"
     end
     
-    -- Check for consumables
     if classID == Enum.ItemClass.Consumable then
-        -- Check if it might be a reputation item
-        -- Reputation items are often consumables with specific subtypes
-        -- We'll check the item name pattern or use a simple heuristic
-        -- Many reputation items have "Reputation" in their name or are in "Other" subtype
         if itemSubType == "Other" or (itemName and string.find(itemName:lower(), "reputation")) then
             return "Reputation"
         end
         return "Consumable"
     end
     
-    -- Check for reputation items in Miscellaneous class
     if classID == Enum.ItemClass.Miscellaneous then
-        -- Many reputation items are in Miscellaneous
         if itemSubType == "Other" or (itemName and string.find(itemName:lower(), "reputation")) then
             return "Reputation"
         end
     end
     
-    -- Default to Other
     return "Other"
 end
 
@@ -338,25 +193,21 @@ end
 local function CreateCategorySection(parent, categoryName)
     local section = {}
     
-    -- Main section frame
     local frame = CreateFrame("Frame", nil, parent)
     frame:SetHeight(SECTION_HEADER_HEIGHT)
     section.frame = frame
     
-    -- Section title
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("LEFT", frame, "LEFT", 0, 0)
     title:SetText(categoryName)
     title:SetTextColor(1, 1, 1, 1)
     section.title = title
     
-    -- Section background
     local bg = frame:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints(frame)
     bg:SetColorTexture(0.1, 0.1, 0.1, 0.5)
     section.bg = bg
     
-    -- Container for items in this category
     local itemContainer = CreateFrame("Frame", nil, parent)
     section.itemContainer = itemContainer
     section.items = {}
@@ -379,36 +230,31 @@ local function UpdateSlot(slot, bagID, slotID)
             slot.count:Hide()
         end
         
-        -- Quality border color
         if slot.border and type(slot.border) == "table" then
             slot.border.top:Show()
             slot.border.bottom:Show()
             slot.border.left:Show()
             slot.border.right:Show()
             
-            local borderColor = {0.5, 0.5, 0.5, 0.8}  -- Default gray
+            local borderColor = {0.5, 0.5, 0.5, 0.8}
             if itemInfo.quality and itemInfo.quality > 0 then
                 local r, g, b = GetItemQualityColor(itemInfo.quality)
-                borderColor = {r, g, b, 1.0}  -- Full opacity for quality borders
+                borderColor = {r, g, b, 1.0}
             end
             
-            -- Apply quality color to all border edges
             slot.border.top:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
             slot.border.bottom:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
             slot.border.left:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
             slot.border.right:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
         end
         
-        -- Show item level only for equipment items
         if slot.itemLevelText then
             local itemLink = itemInfo.hyperlink
             if itemLink then
-                -- Check if item is equipment
                 local itemID = itemInfo.itemID
                 if itemID then
                     local _, _, _, _, _, _, _, _, itemEquipLoc = C_Item.GetItemInfo(itemID)
                     if itemEquipLoc and itemEquipLoc ~= "" and itemEquipLoc ~= "INVTYPE_NON_EQUIP_IGNORE" then
-                        -- Item is equipment, show item level
                         local itemLevel = C_Item.GetDetailedItemLevelInfo(itemLink)
                         if itemLevel and itemLevel > 0 then
                             slot.itemLevelText:SetText(tostring(itemLevel))
@@ -417,7 +263,6 @@ local function UpdateSlot(slot, bagID, slotID)
                             slot.itemLevelText:Hide()
                         end
                     else
-                        -- Not equipment, hide item level
                         slot.itemLevelText:Hide()
                     end
                 else
@@ -434,11 +279,9 @@ local function UpdateSlot(slot, bagID, slotID)
     else
         slot.itemTexture:Hide()
         slot.count:Hide()
-        -- Hide item level when slot is empty
         if slot.itemLevelText then
             slot.itemLevelText:Hide()
         end
-        -- Show default gray border when slot is empty
         if slot.border and type(slot.border) == "table" then
             slot.border.top:Show()
             slot.border.bottom:Show()
@@ -454,19 +297,69 @@ local function UpdateSlot(slot, bagID, slotID)
     end
 end
 
--- Refresh all bag slots (only showing slots with items)
-local function RefreshBags()
-    if not bagsFrame or not isOpen then
-        return
+-- Hide all default bag frames
+local function HideAllDefaultBags()
+    for i = 1, 13 do
+        local frame = _G["ContainerFrame"..i]
+        if frame then
+            frame:UnregisterAllEvents()
+            frame:Hide()
+        end
     end
     
+    if MainMenuBarBackpackButton then
+        MainMenuBarBackpackButton:Hide()
+    end
+    
+    for i = 0, 3 do
+        local bagButton = _G["CharacterBag"..i.."Slot"]
+        if bagButton then
+            bagButton:Hide()
+        end
+    end
+end
+
+-- Override bag functions to show our panel
+local function OverrideBagFunctions(panel, tabId)
+    local toggleBags = function()
+        if panel:IsPanelOpen() then
+            panel:ClosePanel()
+        else
+            HideAllDefaultBags()
+            panel:OpenPanelToTab(tabId)
+        end
+    end
+
+    if _G.ToggleBackpack then
+        _G.ToggleBackpack = toggleBags
+    end
+    
+    if _G.OpenBackpack then
+        _G.OpenBackpack = toggleBags
+    end
+    
+    if _G.ToggleAllBags then
+        _G.ToggleAllBags = toggleBags
+    end
+    
+    if _G.ToggleBackpack_Combined then
+        _G.ToggleBackpack_Combined = toggleBags
+    end
+    
+    if _G.ToggleBackpack_Individual then
+        _G.ToggleBackpack_Individual = toggleBags
+    end
+end
+
+-- Refresh all bag slots
+function BagsTab:Refresh()
     -- Clear existing slots and sections
-    for _, slot in ipairs(bagSlots) do
+    for _, slot in ipairs(self.bagSlots) do
         slot:Hide()
     end
-    wipe(bagSlots)
+    wipe(self.bagSlots)
     
-    for categoryName, section in pairs(categorySections) do
+    for _, section in pairs(self.categories) do
         if section.frame then
             section.frame:Hide()
         end
@@ -480,9 +373,9 @@ local function RefreshBags()
             wipe(section.items)
         end
     end
-    wipe(categorySections)
+    wipe(self.categories)
     
-    -- First pass: collect all slots that have items and categorize them
+    -- Collect all items and categorize them
     local itemsByCategory = {}
     for bagID = 0, 4 do
         local numSlots = C_Container.GetContainerNumSlots(bagID) or 0
@@ -501,22 +394,11 @@ local function RefreshBags()
             end
         end
     end
-    
-    -- Category display order
-    local categoryOrder = {"Gear", "Tradeskills", "Consumable", "Reputation", "Quest", "Other"}
-    
-    local containerWidth = bagsFrame.container:GetWidth()
-    local containerHeight = bagsFrame.container:GetHeight()
-    
-    -- Ensure we have valid dimensions
-    if containerWidth <= 0 or containerHeight <= 0 then
-        return
-    end
-    
-    -- First pass: Calculate total height of all sections
+
+    -- Calculate total height
     local totalHeight = 0
     local sectionsToCreate = {}
-    for _, categoryName in ipairs(categoryOrder) do
+    for _, categoryName in ipairs(CATEGORIES) do
         local categoryItems = itemsByCategory[categoryName]
         if categoryItems and #categoryItems > 0 then
             local numItems = #categoryItems
@@ -535,53 +417,39 @@ local function RefreshBags()
         end
     end
     
-    -- Calculate starting Y position to center all sections vertically
-    local startY = -(containerHeight - totalHeight) / 2
-    
+    local startY = -(self.content:GetHeight() - totalHeight) / 2
     local currentY = startY
     local slotIndex = 1
     
-    -- Second pass: Create and position sections
+    -- Create and position sections
     for _, sectionData in ipairs(sectionsToCreate) do
         local categoryName = sectionData.categoryName
         local categoryItems = sectionData.categoryItems
         local gridHeight = sectionData.gridHeight
         
-        -- Create or get section for this category
-        local section = categorySections[categoryName]
+        local section = self.categories[categoryName]
         if not section then
-            section = CreateCategorySection(bagsFrame.container, categoryName)
-            categorySections[categoryName] = section
+            section = CreateCategorySection(self.content, categoryName)
+            self.categories[categoryName] = section
         end
         
-        -- Position section header
-        section.frame:SetPoint("TOPLEFT", bagsFrame.container, "TOPLEFT", GRID_MARGIN, currentY)
-        section.frame:SetPoint("TOPRIGHT", bagsFrame.container, "TOPRIGHT", -GRID_MARGIN, currentY)
+        section.frame:SetPoint("TOPLEFT", self.content, "TOPLEFT", GRID_MARGIN, currentY)
+        section.frame:SetPoint("TOPRIGHT", self.content, "TOPRIGHT", -GRID_MARGIN, currentY)
         section.frame:Show()
         
-        -- Calculate grid dimensions for this category
-        local numItems = #categoryItems
-        local numRows = math.ceil(numItems / SLOTS_PER_ROW)
-        local actualCols = math.min(SLOTS_PER_ROW, numItems)
-        local gridWidth = (actualCols * SLOT_SIZE) + ((actualCols - 1) * SLOT_SPACING)
-        
-        -- Position item container below section header
         section.itemContainer:SetPoint("TOPLEFT", section.frame, "BOTTOMLEFT", 0, -SECTION_SPACING)
         section.itemContainer:SetPoint("TOPRIGHT", section.frame, "BOTTOMRIGHT", 0, -SECTION_SPACING)
         section.itemContainer:SetHeight(gridHeight)
         section.itemContainer:Show()
         
-        -- Left-align the grid
         local offsetX = 0
         
-        -- Create and position slots for items in this category
         for itemIndex, itemData in ipairs(categoryItems) do
-            local slot = bagSlots[slotIndex]
+            local slot = self.bagSlots[slotIndex]
             if not slot then
                 slot = CreateBagSlot(section.itemContainer, slotIndex)
             end
             
-            -- Calculate position within category grid
             local row = math.floor((itemIndex - 1) / SLOTS_PER_ROW)
             local col = (itemIndex - 1) % SLOTS_PER_ROW
             
@@ -591,162 +459,123 @@ local function RefreshBags()
             slot:SetPoint("TOPLEFT", section.itemContainer, "TOPLEFT", x, y)
             slot:Show()
             
-            -- Update slot with item data
             UpdateSlot(slot, itemData.bagID, itemData.slotID)
             
             table.insert(section.items, slot)
-            bagSlots[slotIndex] = slot
+            self.bagSlots[slotIndex] = slot
             slotIndex = slotIndex + 1
         end
         
-        -- Update current Y position for next section
         currentY = currentY - sectionData.sectionHeight
     end
-    
-    -- Register grid with interface cursor
-    if SteamDeckInterfaceCursorModule then
-        SteamDeckInterfaceCursorModule:RegisterBagsGrid(bagSlots, categorySections)
-    end
 end
 
--- Open the bags frame
-function BagsModule:Open()
-    if not bagsFrame then
-        bagsFrame = CreateBagsFrame()
-    end
-    
-    isOpen = true
-    bagsFrame:Show()
-    
-    -- Activate interface cursor for bags BEFORE refreshing
-    -- This ensures currentModule is set when RegisterBagsGrid is called
-    if SteamDeckInterfaceCursorModule then
-        SteamDeckInterfaceCursorModule:Activate("bags")
-    end
-    
-    RefreshBags()
-end
+-- Initialize the tab
+function BagsTab:Initialize(panel, contentFrame)
 
--- Close the bags frame
-function BagsModule:Close()
-    if bagsFrame then
-        bagsFrame:Hide()
-        isOpen = false
-        -- Ensure default bags stay hidden when we close
-        HideAllDefaultBags()
-        
-        -- Deactivate interface cursor
-        if SteamDeckInterfaceCursorModule then
-            SteamDeckInterfaceCursorModule:Deactivate()
-        end
-    end
-end
+    self.id = "bags"
+    self.name = "Bags"
+    self.panel = panel
+    self.content = contentFrame
+    self.bagSlots = {}
+    self.categories = {}
 
--- Toggle the bags frame
-function BagsModule:Toggle()
-    -- Ensure frame exists
-    if not bagsFrame then
-        bagsFrame = CreateBagsFrame()
-    end
-    
-    -- Use our tracked state - it's kept in sync by OnShow/OnHide scripts
-    -- This is more reliable than checking IsShown() which might have timing issues
-    if isOpen then
-        -- Frame is open, close it
-        self:Close()
-    else
-        -- Frame is closed, open it
-        self:Open()
-    end
-end
-
--- Apply function overrides
-local function ApplyOverrides()
-    -- Store original functions before overriding (only if not already stored)
-    if ToggleBackpack and not originalToggleBackpack then
-        originalToggleBackpack = ToggleBackpack
-    end
-    -- Force override - replace the function completely
-    if ToggleBackpack then
-        _G.ToggleBackpack = OverrideToggleBackpack
-        ToggleBackpack = OverrideToggleBackpack
-    end
-    
-    if OpenBackpack and not originalOpenBackpack then
-        originalOpenBackpack = OpenBackpack
-    end
-    if OpenBackpack then
-        OpenBackpack = OverrideOpenBackpack
-    end
-    
-    if ToggleAllBags and not originalToggleAllBags then
-        originalToggleAllBags = ToggleAllBags
-    end
-    if ToggleAllBags then
-        ToggleAllBags = OverrideToggleAllBags
-    end
-    
-    -- Also override the internal toggle functions if they exist
-    if ToggleBackpack_Combined then
-        ToggleBackpack_Combined = OverrideToggleBackpack
-    end
-    if ToggleBackpack_Individual then
-        ToggleBackpack_Individual = OverrideToggleBackpack
-    end
-end
-
--- Initialize the module
-function BagsModule:Initialize()
-    -- Apply overrides immediately
-    ApplyOverrides()
-    
-    -- Hide default bags initially
-    HideAllDefaultBags()
-    
     -- Register for bag update events
-    local eventFrame = CreateFrame("Frame")
-    eventFrame:RegisterEvent("BAG_UPDATE")
-    eventFrame:RegisterEvent("BAG_UPDATE_DELAYED")
-    eventFrame:RegisterEvent("ITEM_LOCK_CHANGED")
-    eventFrame:RegisterEvent("BAG_OPEN")
-    eventFrame:SetScript("OnEvent", function(self, event)
-        -- Hide default bags whenever they try to show
-        if event == "BAG_OPEN" then
-            HideAllDefaultBags()
-        end
-        if isOpen then
-            RefreshBags()
+    self.eventFrame = CreateFrame("Frame")
+    self.eventFrame:RegisterEvent("BAG_UPDATE")
+    self.eventFrame:RegisterEvent("BAG_UPDATE_DELAYED")
+    self.eventFrame:RegisterEvent("ITEM_LOCK_CHANGED")
+    local tab = self
+    self.eventFrame:SetScript("OnEvent", function()
+        if tab.content and tab.content:IsShown() then
+            tab:Refresh()
         end
     end)
-    
-    -- Hook into container frame Show methods to prevent them from showing
+
+    OverrideBagFunctions(panel, self.id)
+    HideAllDefaultBags()
+
+    -- Hook into container frame Show methods
     for i = 1, 13 do
         local frame = _G["ContainerFrame"..i]
         if frame then
-            local originalShow = frame.Show
             frame.Show = function(self, ...)
                 HideAllDefaultBags()
-                -- Don't call original Show, just hide it
             end
         end
     end
     
-    -- Re-apply overrides on PLAYER_LOGIN to ensure they persist
+    -- Register for bag open events
+    local bagEventFrame = CreateFrame("Frame")
+    bagEventFrame:RegisterEvent("BAG_OPEN")
+    bagEventFrame:SetScript("OnEvent", function(self, event)
+        if event == "BAG_OPEN" then
+            HideAllDefaultBags()
+        end
+    end)
+    
+    -- Re-apply overrides on PLAYER_LOGIN
     local loginFrame = CreateFrame("Frame")
     loginFrame:RegisterEvent("PLAYER_LOGIN")
     loginFrame:SetScript("OnEvent", function()
-        -- Re-apply overrides after everything is loaded
-        ApplyOverrides()
-        
-        -- Verify override is applied
-        if ToggleBackpack == OverrideToggleBackpack then
-            -- Override is correctly applied
-        else
-            -- Force apply again
-            ApplyOverrides()
-        end
+        OverrideBagFunctions(panel, self.id)
     end)
 end
 
-return BagsModule
+function BagsTab:OnShow()
+    self:Refresh()
+end
 
+function BagsTab:OnHide()
+end
+
+-- Get navigation grid for cursor system
+-- Build navigation grid from bag slots
+-- Returns a 2D grid structure: grid[row][col] = slot
+-- Also returns slotToPosition map: slotToPosition[slot] = {row, col}
+function BagsTab:GetNavGrid()
+  local SLOTS_PER_ROW = 8
+  local grid = {}
+  local slotToPosition = {}
+  local currentGlobalRow = 0
+  
+  -- Category display order
+  local categoryOrder = {"Gear", "Tradeskills", "Consumable", "Reputation", "Quest", "Other"}
+  
+  -- Process each category in order (top to bottom)
+  for _, categoryName in ipairs(categoryOrder) do
+      local section = categorySections[categoryName]
+      if section and section.items and #section.items > 0 then
+          -- Process items in this category section
+          local numItems = #section.items
+          local numRows = math.ceil(numItems / SLOTS_PER_ROW)
+          
+          -- Process each row in this category
+          for rowInSection = 0, numRows - 1 do
+              -- Process each column in this row
+              for colInSection = 0, SLOTS_PER_ROW - 1 do
+                  local itemIndex = (rowInSection * SLOTS_PER_ROW) + colInSection + 1
+                  
+                  if itemIndex <= numItems then
+                      local slot = section.items[itemIndex]
+                      if slot and slot:IsShown() then
+                          -- Assign to global grid position
+                          if not grid[currentGlobalRow] then
+                              grid[currentGlobalRow] = {}
+                          end
+                          grid[currentGlobalRow][colInSection] = slot
+                          slotToPosition[slot] = {row = currentGlobalRow, col = colInSection}
+                      end
+                  end
+              end
+              
+              -- Move to next global row
+              currentGlobalRow = currentGlobalRow + 1
+          end
+      end
+  end
+  
+  return grid, slotToPosition
+end
+
+return BagsTab

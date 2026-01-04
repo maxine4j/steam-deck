@@ -1,12 +1,8 @@
 -- Equipment Tab Module
 -- Handles equipment slots, character model, and stats display
 
-SteamDeckCharacterEquipmentTab = {}
-local EquipmentTab = SteamDeckCharacterEquipmentTab
-
--- Equipment tab state
-local modelScene = nil
-local equipmentSlots = {}
+SteamDeckEquipmentTab = {}
+local EquipmentTab = SteamDeckEquipmentTab
 
 -- Configuration
 local SLOT_SIZE = 48
@@ -19,6 +15,7 @@ local STAT_CATEGORY_SPACING = 12
 local STAT_ITEM_SPACING = 20
 local TITLE_HEIGHT = 40
 local TAB_HEIGHT = 35
+local FRAME_PADDING = 20
 
 -- Equipment slots in default UI layout order
 local LEFT_SLOTS = {
@@ -239,69 +236,142 @@ local function UpdateEquipmentSlot(slot)
     end
 end
 
+-- Utility functions
+local function FormatNumber(num)
+    if num >= 1000000 then
+        return string.format("%.1fM", num / 1000000)
+    elseif num >= 1000 then
+        return string.format("%.1fK", num / 1000)
+    else
+        return tostring(num)
+    end
+end
+
+local function RemoveTrailingZeros(text)
+    return string.gsub(text, "%.?0+%%", "%%")
+end
+
+local function HideDefaultCharacter()
+    if CharacterFrame then
+        CharacterFrame:UnregisterAllEvents()
+        CharacterFrame:Hide()
+    end
+end
+
+local function OverrideCharacterFunction(panel, tabId)
+    local toggleCharacter = function()
+        if panel:IsPanelOpen() then
+            panel:ClosePanel()
+        else
+            HideDefaultCharacter()
+            panel:OpenPanelToTab(tabId)
+        end
+    end
+
+    _G.ToggleCharacter = toggleCharacter
+
+    -- Hook into CharacterFrame Show method
+    if CharacterFrame then
+        CharacterFrame.Show = function()
+            HideDefaultCharacter()
+        end
+    end
+end
+
 -- Initialize equipment tab
-function EquipmentTab.Initialize(frame, config)
-    local FRAME_PADDING = config.FRAME_PADDING
-    local FormatNumber = config.FormatNumber
-    local RemoveTrailingZeros = config.RemoveTrailingZeros
+function EquipmentTab:Initialize(panel, contentFrame)
+    local tab = self
     
-    -- Get Equipment tab content frame
-    local equipmentContent = frame.tabContentFrames["Equipment"]
+    -- Set tab properties
+    self.id = "equipment"
+    self.name = "Equipment"
+    self.panel = panel
+    self.content = contentFrame
+    self.equipmentSlots = {}
+    self.modelScene = nil
     
-    -- Calculate model size
-    local modelSize = GetModelSize()
+    -- Apply overrides immediately
+    OverrideCharacterFunction(self.panel, self.id)
+    HideDefaultCharacter()
+
+    -- Re-apply overrides on PLAYER_LOGIN
+    local loginFrame = CreateFrame("Frame")
+    loginFrame:RegisterEvent("PLAYER_LOGIN")
+    loginFrame:SetScript("OnEvent", function()
+        OverrideCharacterFunction(self.panel, self.id)
+    end)
     
-    -- Calculate frame width
-    local leftSlotArea = FRAME_PADDING + SLOT_SIZE + 10
-    local rightSlotArea = FRAME_PADDING + SLOT_SIZE + 10
-    local frameWidth = leftSlotArea + modelSize + rightSlotArea
-    frame:SetWidth(frameWidth)
+    -- Get actual content frame width
+    local contentWidth = self.content:GetWidth()
+    if contentWidth <= 0 then
+        -- Fallback if width not set yet
+        contentWidth = 600 - (2 * FRAME_PADDING)
+    end
     
-    -- Calculate model center position
-    local leftSlotsEnd = leftSlotArea
-    local rightSlotsStart = frameWidth - rightSlotArea
-    local modelCenterX = (leftSlotsEnd + rightSlotsStart) / 2
-    local modelLeftX = modelCenterX - (modelSize / 2)
+    -- Calculate height of left equipment slots (8 slots + spacing)
+    local leftSlotsHeight = (#LEFT_SLOTS * SLOT_SIZE) + ((#LEFT_SLOTS - 1) * SLOT_SPACING)
+    
+    -- Calculate model size - width uses available space, height capped by left slots height
+    -- Note: content frame already has FRAME_PADDING on the right from panels.lua
+    local slotPadding = 5  -- Padding between slots and model
+    local leftSlotArea = SLOT_SIZE + slotPadding
+    local rightSlotArea = SLOT_SIZE + slotPadding
+    -- Account for left margin (FRAME_PADDING) - right margin already accounted for in contentWidth
+    local availableWidth = contentWidth - FRAME_PADDING - leftSlotArea - rightSlotArea
+    local modelWidth = availableWidth
+    local modelHeight = math.min(modelWidth, leftSlotsHeight)  -- Cap height by left slots
+    
+    -- Calculate total width of equipment layout (left slots + padding + model + padding + right slots)
+    local totalLayoutWidth = SLOT_SIZE + slotPadding + modelWidth + slotPadding + SLOT_SIZE
+    
+    -- Position layout with left margin (FRAME_PADDING) to match the right margin
+    local layoutStartX = FRAME_PADDING
+    
+    -- Calculate positions
+    local leftSlotsX = layoutStartX
+    local modelLeftX = leftSlotsX + SLOT_SIZE + slotPadding
+    local rightSlotsX = modelLeftX + modelWidth + slotPadding
+    local modelCenterX = modelLeftX + (modelWidth / 2)
     
     -- Create background for the model
-    local modelBackground = equipmentContent:CreateTexture(nil, "BACKGROUND")
-    modelBackground:SetSize(modelSize, modelSize)
-    modelBackground:SetPoint("TOPLEFT", equipmentContent, "TOPLEFT", modelLeftX, -MODEL_TOP_OFFSET_Y)
+    local modelBackground = self.content:CreateTexture(nil, "BACKGROUND")
+    modelBackground:SetSize(modelWidth, modelHeight)
+    modelBackground:SetPoint("TOPLEFT", self.content, "TOPLEFT", modelLeftX, -MODEL_TOP_OFFSET_Y)
     modelBackground:SetColorTexture(0.1, 0.1, 0.1, 0.9)
     
     -- Create border around the model background
     local borderThickness = 2
     local borderColor = {0.7, 0.7, 0.7, 0.8}
     
-    local borderTop = equipmentContent:CreateTexture(nil, "BORDER")
-    borderTop:SetSize(modelSize, borderThickness)
+    local borderTop = self.content:CreateTexture(nil, "BORDER")
+    borderTop:SetSize(modelWidth, borderThickness)
     borderTop:SetPoint("TOPLEFT", modelBackground, "TOPLEFT", 0, borderThickness)
     borderTop:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
     
-    local borderBottom = equipmentContent:CreateTexture(nil, "BORDER")
-    borderBottom:SetSize(modelSize, borderThickness)
+    local borderBottom = self.content:CreateTexture(nil, "BORDER")
+    borderBottom:SetSize(modelWidth, borderThickness)
     borderBottom:SetPoint("BOTTOMLEFT", modelBackground, "BOTTOMLEFT", 0, -borderThickness)
     borderBottom:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
     
-    local borderLeft = equipmentContent:CreateTexture(nil, "BORDER")
-    borderLeft:SetSize(borderThickness, modelSize)
+    local borderLeft = self.content:CreateTexture(nil, "BORDER")
+    borderLeft:SetSize(borderThickness, modelHeight)
     borderLeft:SetPoint("TOPLEFT", modelBackground, "TOPLEFT", -borderThickness, 0)
     borderLeft:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
     
-    local borderRight = equipmentContent:CreateTexture(nil, "BORDER")
-    borderRight:SetSize(borderThickness, modelSize)
+    local borderRight = self.content:CreateTexture(nil, "BORDER")
+    borderRight:SetSize(borderThickness, modelHeight)
     borderRight:SetPoint("TOPRIGHT", modelBackground, "TOPRIGHT", borderThickness, 0)
     borderRight:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], borderColor[4])
     
     -- Create PlayerModel frame
-    modelScene = CreateFrame("PlayerModel", "SteamDeckCharacterModel", equipmentContent)
-    modelScene:SetSize(modelSize, modelSize)
-    modelScene:SetPoint("TOPLEFT", equipmentContent, "TOPLEFT", modelLeftX, -MODEL_TOP_OFFSET_Y)
+    self.modelScene = CreateFrame("PlayerModel", "SteamDeckCharacterModel", self.content)
+    self.modelScene:SetSize(modelWidth, modelHeight)
+    self.modelScene:SetPoint("TOPLEFT", self.content, "TOPLEFT", modelLeftX, -MODEL_TOP_OFFSET_Y)
     
     -- Set up the model
     local function SetupModelScene()
-        if not modelScene:IsShown() then
-            modelScene:Show()
+        if not self.modelScene:IsShown() then
+            self.modelScene:Show()
         end
         
         local form = GetShapeshiftFormID()
@@ -315,7 +385,7 @@ function EquipmentTab.Initialize(frame, config)
                 local useShapeshiftDisplayID = (not displayIDIsNative and not isMirrorImage and displayRaceIsNative)
                 
                 if useShapeshiftDisplayID then
-                    modelScene:SetCreatureDisplayID(creatureDisplayID)
+                    self.modelScene:SetCreatureDisplayID(creatureDisplayID)
                     return
                 end
             end
@@ -323,23 +393,22 @@ function EquipmentTab.Initialize(frame, config)
         
         local inAlternateForm = C_PlayerInfo and C_PlayerInfo.GetAlternateFormInfo and select(2, C_PlayerInfo.GetAlternateFormInfo()) or false
         local useNativeForm = not inAlternateForm
-        modelScene:SetUnit("player", false, useNativeForm)
+        self.modelScene:SetUnit("player", false, useNativeForm)
     end
     
-    modelScene.SetupModel = SetupModelScene
-    frame.modelScene = modelScene
+    self.modelScene.SetupModel = SetupModelScene
     
     -- Create equipment slots
-    local leftStartX = FRAME_PADDING
+    local leftStartX = leftSlotsX
     local leftStartY = -MODEL_TOP_OFFSET_Y + 2
     local previousLeftSlot = nil
     
     for i, slotName in ipairs(LEFT_SLOTS) do
-        local slot = CreateEquipmentSlot(equipmentContent, slotName, i)
-        table.insert(equipmentSlots, slot)
+        local slot = CreateEquipmentSlot(self.content, slotName, i)
+        table.insert(self.equipmentSlots, slot)
         
         if i == 1 then
-            slot:SetPoint("TOPLEFT", equipmentContent, "TOPLEFT", leftStartX, leftStartY)
+            slot:SetPoint("TOPLEFT", self.content, "TOPLEFT", leftStartX, leftStartY)
         else
             slot:SetPoint("TOPLEFT", previousLeftSlot, "BOTTOMLEFT", 0, -SLOT_SPACING)
         end
@@ -350,11 +419,11 @@ function EquipmentTab.Initialize(frame, config)
     local previousRightSlot = nil
     
     for i, slotName in ipairs(RIGHT_SLOTS) do
-        local slot = CreateEquipmentSlot(equipmentContent, slotName, #LEFT_SLOTS + i)
-        table.insert(equipmentSlots, slot)
+        local slot = CreateEquipmentSlot(self.content, slotName, #LEFT_SLOTS + i)
+        table.insert(self.equipmentSlots, slot)
         
         if i == 1 then
-            slot:SetPoint("TOPRIGHT", equipmentContent, "TOPRIGHT", -FRAME_PADDING, rightStartY)
+            slot:SetPoint("TOPLEFT", self.content, "TOPLEFT", rightSlotsX, rightStartY)
         else
             slot:SetPoint("TOPLEFT", previousRightSlot, "BOTTOMLEFT", 0, -SLOT_SPACING)
         end
@@ -362,25 +431,33 @@ function EquipmentTab.Initialize(frame, config)
     end
     
     local bottomMainHandX = modelCenterX - SLOT_SIZE - (SLOT_SPACING / 2)
-    local weaponSlotY = -MODEL_TOP_OFFSET_Y - modelSize - SLOT_SPACING
+    local weaponSlotY = -MODEL_TOP_OFFSET_Y - modelHeight - SLOT_SPACING
     
     for i, slotName in ipairs(BOTTOM_SLOTS) do
-        local slot = CreateEquipmentSlot(equipmentContent, slotName, #LEFT_SLOTS + #RIGHT_SLOTS + i)
-        table.insert(equipmentSlots, slot)
+        local slot = CreateEquipmentSlot(self.content, slotName, #LEFT_SLOTS + #RIGHT_SLOTS + i)
+        table.insert(self.equipmentSlots, slot)
         
         if i == 1 then
-            slot:SetPoint("TOPLEFT", equipmentContent, "TOPLEFT", bottomMainHandX, weaponSlotY)
+            slot:SetPoint("TOPLEFT", self.content, "TOPLEFT", bottomMainHandX, weaponSlotY)
         else
-            slot:SetPoint("TOPLEFT", equipmentSlots[#equipmentSlots - 1], "TOPRIGHT", 5, 0)
+            slot:SetPoint("TOPLEFT", self.equipmentSlots[#self.equipmentSlots - 1], "TOPRIGHT", 5, 0)
         end
     end
     
-    -- Create stats section
-    local statsContainer = CreateFrame("Frame", nil, equipmentContent)
-    local modelBottom = -MODEL_TOP_OFFSET_Y - modelSize - SLOT_SPACING - SLOT_SIZE - 20
-    statsContainer:SetPoint("TOPLEFT", equipmentContent, "TOPLEFT", FRAME_PADDING, modelBottom)
-    statsContainer:SetPoint("BOTTOMRIGHT", equipmentContent, "BOTTOMRIGHT", -FRAME_PADDING, FRAME_PADDING)
-    statsContainer.frameWidth = frameWidth
+    -- Create stats section - position it below the weapon slots, centered
+    local statsContainer = CreateFrame("Frame", nil, self.content)
+    -- Calculate Y position below weapon slots
+    local weaponSlotBottom = weaponSlotY - SLOT_SIZE  -- Bottom of weapon slots
+    local statsSpacing = 40  -- Spacing below weapon slots
+    local statsTopY = weaponSlotBottom - statsSpacing  -- Position stats below weapon slots
+    local statsLeftX = layoutStartX  -- Align with the equipment layout
+    local statsRightX = layoutStartX + totalLayoutWidth  -- Align with the equipment layout
+    
+    -- Position stats container below the weapon slots
+    statsContainer:SetPoint("TOPLEFT", self.content, "TOPLEFT", statsLeftX, statsTopY)
+    statsContainer:SetPoint("TOPRIGHT", self.content, "TOPLEFT", statsRightX, statsTopY)
+    statsContainer:SetPoint("BOTTOM", self.content, "BOTTOM", 0, FRAME_PADDING)
+    statsContainer.frameWidth = totalLayoutWidth
     
     -- Stats update function
     local function UpdateStats()
@@ -492,8 +569,8 @@ function EquipmentTab.Initialize(frame, config)
         return headerFrame
     end
     
-    -- Calculate column widths
-    local containerWidth = statsContainer.frameWidth - (2 * FRAME_PADDING)
+    -- Calculate column widths - use full width of stats container
+    local containerWidth = totalLayoutWidth  -- Stats container spans the full layout width
     local columnWidth = (containerWidth - STAT_CATEGORY_SPACING) / 2
     local leftColumnX = 0
     local rightColumnX = columnWidth + STAT_CATEGORY_SPACING
@@ -620,21 +697,46 @@ function EquipmentTab.Initialize(frame, config)
     statsContainer.versValue = versValue
     
     statsContainer.UpdateStats = UpdateStats
-    frame.statsContainer = statsContainer
+    self.statsContainer = statsContainer
+    
+    -- Register for equipment update events
+    self.eventFrame = CreateFrame("Frame")
+    self.eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+    self.eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
+    self.eventFrame:RegisterEvent("PLAYER_AVG_ITEM_LEVEL_UPDATE")
+    self.eventFrame:RegisterEvent("CHARACTER_POINTS_CHANGED")
+    self.eventFrame:RegisterEvent("PLAYER_LEVEL_UP")
+    self.eventFrame:SetScript("OnEvent", function(self, event, unit)
+        if unit == "player" or not unit then
+            if tab.content and tab.content:IsShown() then
+                tab:Refresh()
+            end
+        end
+    end)
 end
 
 -- Refresh equipment
-function EquipmentTab.Refresh(frame)
-    for _, slot in ipairs(equipmentSlots) do
+function EquipmentTab:Refresh()
+    for _, slot in ipairs(self.equipmentSlots) do
         UpdateEquipmentSlot(slot)
     end
     
-    if modelScene and modelScene.SetupModel then
-        modelScene:SetupModel()
+    if self.modelScene and self.modelScene.SetupModel then
+        self.modelScene:SetupModel()
     end
     
-    if frame.statsContainer and frame.statsContainer.UpdateStats then
-        frame.statsContainer:UpdateStats()
+    if self.statsContainer and self.statsContainer.UpdateStats then
+        self.statsContainer:UpdateStats()
     end
 end
 
+-- OnShow callback
+function EquipmentTab:OnShow()
+    self:Refresh()
+end
+
+-- OnHide callback
+function EquipmentTab:OnHide()
+end
+
+return EquipmentTab

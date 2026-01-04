@@ -5,10 +5,10 @@
 ## Version: 1.0.0
 
 src/main.lua
-src/modules/bags/module.lua
-src/modules/character/module.lua
-src/modules/character/tabs/equipment.lua
-src/modules/character/tabs/reputation.lua
-src/modules/character/tabs/currencies.lua
-src/modules/interfacecursor/module.lua
+src/panels.lua
+src/cursor.lua
+src/tabs/bags.lua
+src/tabs/equipment.lua
+src/tabs/reputation.lua
+src/tabs/currencies.lua
 

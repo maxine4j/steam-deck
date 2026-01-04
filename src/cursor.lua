@@ -6,9 +6,10 @@ local InterfaceCursor = SteamDeckInterfaceCursorModule
 
 -- State
 local cursorFrame = nil
-local currentModule = nil
+local currentTab = nil
 local currentSelection = nil
 local navigationGrid = nil
+local slotToPositionMap = {}
 local highlightFrame = nil
 
 -- Configuration
@@ -111,58 +112,6 @@ local function UpdateHighlight(slot)
     highlightFrame:Show()
 end
 
--- Build navigation grid from bag slots
--- Returns a 2D grid structure: grid[row][col] = slot
--- Also returns slotToPosition map: slotToPosition[slot] = {row, col}
--- This builds the grid based on the actual visual layout in the UI
-local function BuildBagsNavigationGrid(bagSlots, categorySections)
-    local SLOTS_PER_ROW = 8  -- From bags module
-    local SLOT_SIZE = 48
-    local SLOT_SPACING = 4
-    
-    local grid = {}
-    local slotToPosition = {}
-    local currentGlobalRow = 0
-    
-    -- Category display order (same as in bags module)
-    local categoryOrder = {"Gear", "Tradeskills", "Consumable", "Reputation", "Quest", "Other"}
-    
-    -- Process each category in order (top to bottom)
-    for _, categoryName in ipairs(categoryOrder) do
-        local section = categorySections[categoryName]
-        if section and section.items and #section.items > 0 then
-            -- Process items in this category section
-            -- Items are laid out in rows of SLOTS_PER_ROW within the section
-            local numItems = #section.items
-            local numRows = math.ceil(numItems / SLOTS_PER_ROW)
-            
-            -- Process each row in this category
-            for rowInSection = 0, numRows - 1 do
-                -- Process each column in this row
-                for colInSection = 0, SLOTS_PER_ROW - 1 do
-                    local itemIndex = (rowInSection * SLOTS_PER_ROW) + colInSection + 1
-                    
-                    if itemIndex <= numItems then
-                        local slot = section.items[itemIndex]
-                        if slot and slot:IsShown() then
-                            -- Assign to global grid position
-                            if not grid[currentGlobalRow] then
-                                grid[currentGlobalRow] = {}
-                            end
-                            grid[currentGlobalRow][colInSection] = slot
-                            slotToPosition[slot] = {row = currentGlobalRow, col = colInSection}
-                        end
-                    end
-                end
-                
-                -- Move to next global row
-                currentGlobalRow = currentGlobalRow + 1
-            end
-        end
-    end
-    
-    return grid, slotToPosition
-end
 
 -- Find the slot at a specific grid position
 local function GetSlotAtPosition(grid, row, col)
@@ -278,62 +227,67 @@ local function SetSelection(slot)
     GameTooltip:Hide()
 end
 
--- Store slot to position map
-local slotToPositionMap = {}
 
 -- Handle D-pad navigation
 local function HandleDpadNavigation(button)
-    if not currentModule then
+    if not currentTab then
         return
+    end
+    
+    -- Get navigation grid from current tab
+    if not navigationGrid then
+        if currentTab and currentTab.GetNavGrid then
+            navigationGrid, slotToPositionMap = currentTab:GetNavGrid()
+        end
     end
     
     if not navigationGrid then
         return
     end
     
-    if currentModule == "bags" then
-        if not currentSelection then
-            -- No current selection, select first slot
-            local firstSlot, row, col = FindFirstSlot(navigationGrid)
-            if firstSlot then
-                SetSelection(firstSlot)
-            end
-            return
+    if not currentSelection then
+        -- No current selection, select first slot
+        local firstSlot, row, col = FindFirstSlot(navigationGrid)
+        if firstSlot then
+            SetSelection(firstSlot)
         end
-        
-        -- Use button as-is (already normalized to string)
-        local normalizedButton = button
-        
-        -- Navigate to adjacent slot using stored position map
-        local newSlot = NavigateToAdjacentSlot(navigationGrid, slotToPositionMap, currentSelection, normalizedButton)
-        if newSlot then
-            SetSelection(newSlot)
-        end
+        return
+    end
+    
+    -- Use button as-is (already normalized to string)
+    local normalizedButton = button
+    
+    -- Navigate to adjacent slot using stored position map
+    local newSlot = NavigateToAdjacentSlot(navigationGrid, slotToPositionMap, currentSelection, normalizedButton)
+    if newSlot then
+        SetSelection(newSlot)
     end
 end
 
--- Activate cursor for a module
-function InterfaceCursor:Activate(moduleName, gridData)
-    if moduleName == "bags" then
-        currentModule = "bags"
-        
-        -- Get bag slots and category sections from bags module
-        if SteamDeckBagsModule then
-            -- We need to access the internal state of bags module
-            -- For now, we'll pass the data through a registration function
-            -- This will be called from bags module when it refreshes
-        end
-        
-        -- Show highlight if we have a selection
-        if currentSelection then
-            UpdateHighlight(currentSelection)
+-- Activate cursor for a tab
+function InterfaceCursor:Activate(tab)
+    currentTab = tab
+    
+    -- Get navigation grid from tab
+    if tab and tab.GetNavGrid then
+        navigationGrid, slotToPositionMap = tab:GetNavGrid()
+    end
+    
+    -- Show highlight if we have a selection
+    if currentSelection then
+        UpdateHighlight(currentSelection)
+    elseif navigationGrid then
+        -- Select first slot if available
+        local firstSlot, row, col = FindFirstSlot(navigationGrid)
+        if firstSlot then
+            SetSelection(firstSlot)
         end
     end
 end
 
 -- Deactivate cursor
 function InterfaceCursor:Deactivate()
-    currentModule = nil
+    currentTab = nil
     currentSelection = nil
     navigationGrid = nil
     slotToPositionMap = {}
@@ -345,24 +299,13 @@ function InterfaceCursor:Deactivate()
     GameTooltip:Hide()
 end
 
--- Register navigation grid from bags module
-function InterfaceCursor:RegisterBagsGrid(bagSlots, categorySections)
-    -- If currentModule is nil but we're registering bags grid, activate bags module
-    if not currentModule then
-        currentModule = "bags"
-    end
-    
-    if currentModule == "bags" then
-        navigationGrid, slotToPositionMap = BuildBagsNavigationGrid(bagSlots, categorySections)
+-- Refresh navigation grid from current tab
+function InterfaceCursor:RefreshGrid()
+    if currentTab and currentTab.GetNavGrid then
+        navigationGrid, slotToPositionMap = currentTab:GetNavGrid()
         
-        -- If no current selection, select first slot
-        if not currentSelection then
-            local firstSlot, row, col = FindFirstSlot(navigationGrid)
-            if firstSlot then
-                SetSelection(firstSlot)
-            end
-        elseif currentSelection then
-            -- Check if current selection is still valid
+        -- Validate current selection
+        if currentSelection then
             local pos = slotToPositionMap[currentSelection]
             if not pos or not currentSelection:IsShown() then
                 -- Current selection is invalid, select first slot
@@ -378,6 +321,12 @@ function InterfaceCursor:RegisterBagsGrid(bagSlots, categorySections)
             else
                 -- Update highlight for current selection
                 UpdateHighlight(currentSelection)
+            end
+        elseif navigationGrid then
+            -- Select first slot if available
+            local firstSlot, row, col = FindFirstSlot(navigationGrid)
+            if firstSlot then
+                SetSelection(firstSlot)
             end
         end
     end
@@ -409,12 +358,12 @@ function InterfaceCursor:Initialize()
         -- Normalize button name (handle string comparisons)
         local buttonStr = tostring(button)
         
-        -- Only handle D-pad buttons when bags are open
+        -- Only handle D-pad buttons when a tab is active
         if (buttonStr == DPAD_UP or buttonStr == "PADDUP" or 
             buttonStr == DPAD_DOWN or buttonStr == "PADDDOWN" or
             buttonStr == DPAD_LEFT or buttonStr == "PADDLEFT" or
             buttonStr == DPAD_RIGHT or buttonStr == "PADDRIGHT") and
-           currentModule == "bags" then
+           currentTab then
             HandleDpadNavigation(buttonStr)
         end
     end)

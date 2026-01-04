@@ -264,20 +264,36 @@ local function CreateReputationHeader(parent, factionData, yOffset, hasChildren,
             else
                 C_Reputation.CollapseFactionHeader(factionData.factionIndex)
             end
-            local characterFrame = SteamDeckCharacterModule:GetCharacterFrame()
-            if characterFrame and characterFrame.reputationContainer then
-                characterFrame.reputationContainer:UpdateReputation()
-            end
+                   if content and content.reputationContainer and content.reputationContainer.UpdateReputation then
+                       content.reputationContainer:UpdateReputation()
+                   end
         end)
     end
     
     return header
 end
 
+-- Tab state
+local panel = nil
+local content = nil
+
 -- Initialize reputation tab
-function ReputationTab.Initialize(frame, config)
-    local FRAME_PADDING = config.FRAME_PADDING
-    local reputationContent = frame.tabContentFrames["Reputation"]
+function ReputationTab.Initialize(panelFrame, contentFrame)
+    local FRAME_PADDING = 20
+    
+    -- Store references
+    panel = panelFrame
+    content = contentFrame
+    
+    if not content then
+        return
+    end
+    
+    -- Ensure content frame is hidden initially
+    content:Hide()
+    
+    -- Create all UI elements in the content frame
+    local reputationContent = content
     
     -- Calculate pane widths (split 40/60 with spacing between)
     local totalWidth = reputationContent:GetWidth()
@@ -631,8 +647,22 @@ function ReputationTab.Initialize(frame, config)
     
     local container = CreateFrame("Frame", nil, reputationContent)
     container.UpdateReputation = UpdateReputation
-    frame.reputationContainer = container
+    content.reputationContainer = container
     
     UpdateReputation()
+end
+
+-- OnShow callback
+function ReputationTab.OnShow()
+    if content and content.reputationContainer and content.reputationContainer.UpdateReputation then
+        content.reputationContainer:UpdateReputation()
+    end
+end
+
+-- OnHide callback
+function ReputationTab.OnHide()
+    if content then
+        content:Hide()
+    end
 end
 

@@ -154,9 +154,9 @@ local function CreateCurrencyHeader(parent, currencyData, yOffset, hasChildren, 
             else
                 C_CurrencyInfo.ExpandCurrencyList(currencyData.currencyIndex, true)
             end
-            local characterFrame = SteamDeckCharacterModule:GetCharacterFrame()
-            if characterFrame and characterFrame.currencyContainer then
-                characterFrame.currencyContainer:UpdateCurrency()
+            local characterPanel = SteamDeckPanelModule and SteamDeckPanelModule:GetPanel("character")
+            if characterPanel and characterPanel.currencyContainer then
+                characterPanel.currencyContainer:UpdateCurrency()
             end
         end)
     end
@@ -164,10 +164,27 @@ local function CreateCurrencyHeader(parent, currencyData, yOffset, hasChildren, 
     return header
 end
 
+-- Tab state
+local panel = nil
+local content = nil
+
 -- Initialize currencies tab
-function CurrenciesTab.Initialize(frame, config)
-    local FRAME_PADDING = config.FRAME_PADDING
-    local currencyContent = frame.tabContentFrames["Currencies"]
+function CurrenciesTab.Initialize(panelFrame, contentFrame)
+    local FRAME_PADDING = 20
+    
+    -- Store references
+    panel = panelFrame
+    content = contentFrame
+    
+    if not content then
+        return
+    end
+    
+    -- Ensure content frame is hidden initially
+    content:Hide()
+    
+    -- Create all UI elements in the content frame
+    local currencyContent = content
     
     local totalWidth = currencyContent:GetWidth()
     local paneSpacing = 5
@@ -606,8 +623,22 @@ function CurrenciesTab.Initialize(frame, config)
     
     local container = CreateFrame("Frame", nil, currencyContent)
     container.UpdateCurrency = UpdateCurrency
-    frame.currencyContainer = container
+    content.currencyContainer = container
     
     UpdateCurrency()
+end
+
+-- OnShow callback
+function CurrenciesTab.OnShow()
+    if content and content.currencyContainer and content.currencyContainer.UpdateCurrency then
+        content.currencyContainer:UpdateCurrency()
+    end
+end
+
+-- OnHide callback
+function CurrenciesTab.OnHide()
+    if content then
+        content:Hide()
+    end
 end
 
