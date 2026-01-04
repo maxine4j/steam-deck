@@ -54,7 +54,8 @@ end
 -- Override OpenBackpack
 local function OverrideOpenBackpack()
     HideAllDefaultBags()
-    BagsModule:Open()
+    -- Use toggle behavior so pressing B again closes the bags
+    BagsModule:Toggle()
 end
 
 -- Override ToggleAllBags
@@ -84,6 +85,16 @@ local function CreateBagsFrame()
     
     -- Enable mouse for interaction
     frame:EnableMouse(true)
+    
+    -- Enable keyboard for escape key handling
+    frame:EnableKeyboard(true)
+    
+    -- Handle escape key to close the frame
+    frame:SetScript("OnKeyDown", function(self, key)
+        if key == "ESCAPE" then
+            BagsModule:Close()
+        end
+    end)
     
     -- Ensure frame is not draggable
     frame:SetMovable(false)
@@ -338,7 +349,14 @@ end
 
 -- Toggle the bags frame
 function BagsModule:Toggle()
-    if isOpen then
+    -- Ensure frame exists
+    if not bagsFrame then
+        bagsFrame = CreateBagsFrame()
+    end
+    
+    -- Check actual frame visibility, not just isOpen state
+    -- This ensures we're always in sync with the actual frame state
+    if bagsFrame:IsShown() then
         self:Close()
     else
         self:Open()
