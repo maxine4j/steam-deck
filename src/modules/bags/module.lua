@@ -47,8 +47,13 @@ end
 
 -- Override ToggleBackpack
 local function OverrideToggleBackpack()
+    -- Prevent default bag behavior immediately
     HideAllDefaultBags()
+    -- Toggle our custom bags
     BagsModule:Toggle()
+    -- Ensure default bags stay hidden
+    HideAllDefaultBags()
+    -- Don't call the original function - we've completely replaced it
 end
 
 -- Override OpenBackpack
@@ -79,21 +84,26 @@ local function CreateBagsFrame()
     frame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", 0, 0)
     frame:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", 0, 0)
     
-    -- Set high strata and level so it appears above other UI elements
-    frame:SetFrameStrata("DIALOG")
+    -- Set strata to HIGH so it appears above other UI elements but doesn't block input
+    -- Using HIGH instead of DIALOG prevents it from acting like a modal dialog
+    frame:SetFrameStrata("HIGH")
     frame:SetFrameLevel(100)
     
-    -- Enable mouse for interaction
-    frame:EnableMouse(true)
+    -- Don't enable mouse on the main frame - it covers too much area and blocks other UI
+    -- Mouse interaction will be handled by the individual bag slot buttons (which are Buttons)
+    frame:EnableMouse(false)
     
-    -- Enable keyboard for escape key handling
-    frame:EnableKeyboard(true)
+    -- Don't enable keyboard - we handle toggle through function override
+    -- This prevents the frame from blocking all keyboard input
+    frame:EnableKeyboard(false)
     
-    -- Handle escape key to close the frame
-    frame:SetScript("OnKeyDown", function(self, key)
-        if key == "ESCAPE" then
-            BagsModule:Close()
-        end
+    -- Keep isOpen state in sync with frame visibility
+    frame:SetScript("OnShow", function()
+        isOpen = true
+    end)
+    frame:SetScript("OnHide", function()
+        isOpen = false
+        HideAllDefaultBags()
     end)
     
     -- Ensure frame is not draggable
@@ -344,6 +354,8 @@ function BagsModule:Close()
     if bagsFrame then
         bagsFrame:Hide()
         isOpen = false
+        -- Ensure default bags stay hidden when we close
+        HideAllDefaultBags()
     end
 end
 
@@ -354,32 +366,56 @@ function BagsModule:Toggle()
         bagsFrame = CreateBagsFrame()
     end
     
-    -- Check actual frame visibility, not just isOpen state
-    -- This ensures we're always in sync with the actual frame state
-    if bagsFrame:IsShown() then
+    -- Use our tracked state - it's kept in sync by OnShow/OnHide scripts
+    -- This is more reliable than checking IsShown() which might have timing issues
+    if isOpen then
+        -- Frame is open, close it
         self:Close()
     else
+        -- Frame is closed, open it
         self:Open()
+    end
+end
+
+-- Apply function overrides
+local function ApplyOverrides()
+    -- Store original functions before overriding (only if not already stored)
+    if ToggleBackpack and not originalToggleBackpack then
+        originalToggleBackpack = ToggleBackpack
+    end
+    -- Force override - replace the function completely
+    if ToggleBackpack then
+        _G.ToggleBackpack = OverrideToggleBackpack
+        ToggleBackpack = OverrideToggleBackpack
+    end
+    
+    if OpenBackpack and not originalOpenBackpack then
+        originalOpenBackpack = OpenBackpack
+    end
+    if OpenBackpack then
+        OpenBackpack = OverrideOpenBackpack
+    end
+    
+    if ToggleAllBags and not originalToggleAllBags then
+        originalToggleAllBags = ToggleAllBags
+    end
+    if ToggleAllBags then
+        ToggleAllBags = OverrideToggleAllBags
+    end
+    
+    -- Also override the internal toggle functions if they exist
+    if ToggleBackpack_Combined then
+        ToggleBackpack_Combined = OverrideToggleBackpack
+    end
+    if ToggleBackpack_Individual then
+        ToggleBackpack_Individual = OverrideToggleBackpack
     end
 end
 
 -- Initialize the module
 function BagsModule:Initialize()
-    -- Store original functions before overriding
-    if ToggleBackpack then
-        originalToggleBackpack = ToggleBackpack
-        ToggleBackpack = OverrideToggleBackpack
-    end
-    
-    if OpenBackpack then
-        originalOpenBackpack = OpenBackpack
-        OpenBackpack = OverrideOpenBackpack
-    end
-    
-    if ToggleAllBags then
-        originalToggleAllBags = ToggleAllBags
-        ToggleAllBags = OverrideToggleAllBags
-    end
+    -- Apply overrides immediately
+    ApplyOverrides()
     
     -- Hide default bags initially
     HideAllDefaultBags()
@@ -411,6 +447,22 @@ function BagsModule:Initialize()
             end
         end
     end
+    
+    -- Re-apply overrides on PLAYER_LOGIN to ensure they persist
+    local loginFrame = CreateFrame("Frame")
+    loginFrame:RegisterEvent("PLAYER_LOGIN")
+    loginFrame:SetScript("OnEvent", function()
+        -- Re-apply overrides after everything is loaded
+        ApplyOverrides()
+        
+        -- Verify override is applied
+        if ToggleBackpack == OverrideToggleBackpack then
+            -- Override is correctly applied
+        else
+            -- Force apply again
+            ApplyOverrides()
+        end
+    end)
 end
 
 return BagsModule
