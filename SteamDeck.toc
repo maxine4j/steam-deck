@@ -1,0 +1,9 @@
+## Interface: 100007
+## Title: SteamDeck
+## Notes: All in one SteamDeck support
+## Author: 
+## Version: 1.0.0
+
+src/main.lua
+src/modules/bags/module.lua
+
