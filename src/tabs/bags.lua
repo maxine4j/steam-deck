@@ -468,6 +468,11 @@ function BagsTab:Refresh()
         
         currentY = currentY - sectionData.sectionHeight
     end
+    
+    -- Refresh cursor grid if cursor is active for this tab
+    if SteamDeckInterfaceCursorModule then
+        SteamDeckInterfaceCursorModule:RefreshGrid()
+    end
 end
 
 -- Initialize the tab
@@ -533,48 +538,48 @@ end
 -- Returns a 2D grid structure: grid[row][col] = slot
 -- Also returns slotToPosition map: slotToPosition[slot] = {row, col}
 function BagsTab:GetNavGrid()
-  local SLOTS_PER_ROW = 8
-  local grid = {}
-  local slotToPosition = {}
-  local currentGlobalRow = 0
-  
-  -- Category display order
-  local categoryOrder = {"Gear", "Tradeskills", "Consumable", "Reputation", "Quest", "Other"}
-  
-  -- Process each category in order (top to bottom)
-  for _, categoryName in ipairs(categoryOrder) do
-      local section = categorySections[categoryName]
-      if section and section.items and #section.items > 0 then
-          -- Process items in this category section
-          local numItems = #section.items
-          local numRows = math.ceil(numItems / SLOTS_PER_ROW)
-          
-          -- Process each row in this category
-          for rowInSection = 0, numRows - 1 do
-              -- Process each column in this row
-              for colInSection = 0, SLOTS_PER_ROW - 1 do
-                  local itemIndex = (rowInSection * SLOTS_PER_ROW) + colInSection + 1
-                  
-                  if itemIndex <= numItems then
-                      local slot = section.items[itemIndex]
-                      if slot and slot:IsShown() then
-                          -- Assign to global grid position
-                          if not grid[currentGlobalRow] then
-                              grid[currentGlobalRow] = {}
-                          end
-                          grid[currentGlobalRow][colInSection] = slot
-                          slotToPosition[slot] = {row = currentGlobalRow, col = colInSection}
-                      end
-                  end
-              end
-              
-              -- Move to next global row
-              currentGlobalRow = currentGlobalRow + 1
-          end
-      end
-  end
-  
-  return grid, slotToPosition
+    local SLOTS_PER_ROW = 8
+    local grid = {}
+    local slotToPosition = {}
+    local currentGlobalRow = 0
+    
+    -- Category display order
+    local categoryOrder = {"Gear", "Tradeskills", "Consumable", "Reputation", "Quest", "Other"}
+    
+    -- Process each category in order (top to bottom)
+    for _, categoryName in ipairs(categoryOrder) do
+        local section = self.categories[categoryName]
+        if section and section.items and #section.items > 0 then
+            -- Process items in this category section
+            local numItems = #section.items
+            local numRows = math.ceil(numItems / SLOTS_PER_ROW)
+            
+            -- Process each row in this category
+            for rowInSection = 0, numRows - 1 do
+                -- Process each column in this row
+                for colInSection = 0, SLOTS_PER_ROW - 1 do
+                    local itemIndex = (rowInSection * SLOTS_PER_ROW) + colInSection + 1
+                    
+                    if itemIndex <= numItems then
+                        local slot = section.items[itemIndex]
+                        if slot and slot:IsShown() then
+                            -- Assign to global grid position
+                            if not grid[currentGlobalRow] then
+                                grid[currentGlobalRow] = {}
+                            end
+                            grid[currentGlobalRow][colInSection] = slot
+                            slotToPosition[slot] = {row = currentGlobalRow, col = colInSection}
+                        end
+                    end
+                end
+                
+                -- Move to next global row
+                currentGlobalRow = currentGlobalRow + 1
+            end
+        end
+    end
+    
+    return grid, slotToPosition
 end
 
 return BagsTab

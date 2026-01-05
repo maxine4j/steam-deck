@@ -7,15 +7,20 @@ local PANEL_WIDTH = 600;
 
 -- Initialize the addon
 function SteamDeckAddon:OnInitialize()
+    -- Initialize the interface cursor module
+    if SteamDeckInterfaceCursorModule then
+        SteamDeckInterfaceCursorModule:Initialize()
+    end
 
-    SteamDeckPanels:CreatePanel("Right", "right", PANEL_WIDTH, {
-        SteamDeckBagsTab,
-    })
-
-    SteamDeckPanels:CreatePanel("Left", "left", PANEL_WIDTH, {
+    -- Store panels globally for cursor access
+    SteamDeckPanels.leftPanel = SteamDeckPanels:CreatePanel("Left", "left", PANEL_WIDTH, {
         SteamDeckEquipmentTab,
         SteamDeckReputationTab,
         SteamDeckCurrenciesTab,
+    })
+
+    SteamDeckPanels.rightPanel = SteamDeckPanels:CreatePanel("Right", "right", PANEL_WIDTH, {
+        SteamDeckBagsTab,
     })
 end
 

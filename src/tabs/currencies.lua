@@ -173,6 +173,8 @@ function CurrenciesTab:Initialize(panel, contentFrame)
     self.name = "Currencies"
     self.panel = panel
     self.content = contentFrame
+    self.leftPaneButtons = {}  -- Store left pane category buttons
+    self.rightPaneEntries = {}  -- Store right pane currency entries
     
     if not self.content then
         return
@@ -481,6 +483,9 @@ function CurrenciesTab:Initialize(panel, contentFrame)
             child:SetParent(nil)
         end
         
+        -- Clear stored entries
+        wipe(tab.rightPaneEntries)
+        
         if #categories == 0 or selectedCategoryIndex < 1 or selectedCategoryIndex > #categories then
             return
         end
@@ -536,13 +541,15 @@ function CurrenciesTab:Initialize(panel, contentFrame)
                 currencyListDepth = 0,
                 currencyID = 0
             }
-            CreateCurrencyHeader(rightContentFrame, fakeCurrencyData, yOffset, true, leftPadding, rightPadding, tab)
+            local header = CreateCurrencyHeader(rightContentFrame, fakeCurrencyData, yOffset, true, leftPadding, rightPadding, tab)
+            table.insert(tab.rightPaneEntries, header)
             yOffset = yOffset - CURRENCY_HEADER_HEIGHT
         end
         
         for _, currencyData in ipairs(normalCurrencies) do
             local entry = CreateCurrencyEntry(rightContentFrame, currencyData, yOffset, leftPadding, rightPadding)
             UpdateCurrencyEntry(entry)
+            table.insert(tab.rightPaneEntries, entry)
             yOffset = yOffset - CURRENCY_ENTRY_HEIGHT
         end
         
@@ -550,11 +557,13 @@ function CurrenciesTab:Initialize(panel, contentFrame)
             local headerSpacing = 16
             yOffset = yOffset - headerSpacing
             local header = CreateCurrencyHeader(rightContentFrame, group.header, yOffset, true, leftPadding, rightPadding, tab)
+            table.insert(tab.rightPaneEntries, header)
             yOffset = yOffset - CURRENCY_HEADER_HEIGHT
             
             for _, currencyData in ipairs(group.children) do
                 local entry = CreateCurrencyEntry(rightContentFrame, currencyData, yOffset, leftPadding, rightPadding)
                 UpdateCurrencyEntry(entry)
+                table.insert(tab.rightPaneEntries, entry)
                 yOffset = yOffset - CURRENCY_ENTRY_HEIGHT
             end
         end
@@ -574,6 +583,9 @@ function CurrenciesTab:Initialize(panel, contentFrame)
             child:SetParent(nil)
         end
         
+        -- Clear stored buttons
+        wipe(tab.leftPaneButtons)
+        
         if #categories == 0 then
             return
         end
@@ -589,6 +601,9 @@ function CurrenciesTab:Initialize(panel, contentFrame)
                 UpdateRightPane()
             end)
             
+            -- Store button for navigation
+            table.insert(tab.leftPaneButtons, button)
+            
             yOffset = yOffset - REP_TAB_HEIGHT - REP_TAB_SPACING
         end
         
@@ -600,6 +615,11 @@ function CurrenciesTab:Initialize(panel, contentFrame)
         CollectCategories()
         UpdateLeftPane()
         UpdateRightPane()
+        
+        -- Refresh cursor grid if cursor is active for this tab
+        if SteamDeckInterfaceCursorModule then
+            SteamDeckInterfaceCursorModule:RefreshGrid()
+        end
     end
     
     rightScrollBar:SetScript("OnValueChanged", function(self, value)
@@ -641,10 +661,55 @@ function CurrenciesTab:OnShow()
     if self.content and self.content.currencyContainer and self.content.currencyContainer.UpdateCurrency then
         self.content.currencyContainer:UpdateCurrency()
     end
+    
+    -- Refresh cursor grid if cursor is active for this tab
+    if SteamDeckInterfaceCursorModule then
+        SteamDeckInterfaceCursorModule:RefreshGrid()
+    end
 end
 
 -- OnHide callback
 function CurrenciesTab:OnHide()
+end
+
+-- Get navigation grid for cursor system
+-- Build navigation grid from left pane buttons and right pane entries
+-- Returns a 2D grid structure: grid[row][col] = frame
+-- Also returns slotToPosition map: slotToPosition[frame] = {row, col}
+-- Layout:
+--   Col 0: Left pane category buttons (rows 0-N)
+--   Col 1: Right pane currency entries (rows 0-M)
+function CurrenciesTab:GetNavGrid()
+    local grid = {}
+    local slotToPosition = {}
+    
+    -- Process left pane buttons (col 0)
+    for i, button in ipairs(self.leftPaneButtons) do
+        if button and button:IsShown() then
+            local row = i - 1  -- 0-based row index
+            local col = 0
+            if not grid[row] then
+                grid[row] = {}
+            end
+            grid[row][col] = button
+            slotToPosition[button] = {row = row, col = col}
+        end
+    end
+    
+    -- Process right pane entries (col 1)
+    for i, entry in ipairs(self.rightPaneEntries) do
+        if entry and entry:IsShown() then
+            local row = i - 1  -- 0-based row index
+            local col = 1
+            if not grid[row] then
+                grid[row] = {}
+            end
+            grid[row][col] = entry
+            slotToPosition[entry] = {row = row, col = col}
+        end
+    end
+    
+    return grid, slotToPosition
 end
 
 return CurrenciesTab

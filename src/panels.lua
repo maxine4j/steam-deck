@@ -79,6 +79,7 @@ function SteamDeckPanels:CreatePanel(panelId, side, width, tabs)
     panel.side = side
     panel.tabs = {}
     panel.activeTabId = nil
+    panel.lastTabOrder = 0  -- Counter to track tab registration order
 
     for _, tabModule in ipairs(tabs) do
         panel:RegisterTab(tabModule)
@@ -151,27 +152,37 @@ function SteamDeckPanels:RegisterTab(tabModule)
     tabButton.borders.top:SetSize(width, TAB_BORDER_THICKNESS)
     tabButton.borders.bottom:SetSize(width, TAB_BORDER_THICKNESS)
 
-    -- Reposition tabs
-    self:RepositionTabButtons()
-
+    -- Increment order counter before storing
+    self.lastTabOrder = self.lastTabOrder + 1
+    
     self.tabs[tabModule.tabId] = {
-        order = #self.tabs,
+        order = self.lastTabOrder,
         tabId = tabModule.tabId,
         module = tabModule,
         button = tabButton,
         content = contentFrame,
     }
+    
+    -- Reposition tabs after storing
+    self:RepositionTabButtons()
 end
 
 function SteamDeckPanels:RepositionTabButtons()
-    -- Collect all tab buttons from the data structure
-    local tabs = self.tabs
-    table.sort(tabs, function(a, b) return a.order < b.order end)
-    local tabButtons = {}
-    for tabId, tabData in pairs(tabs) do
+    -- Collect all tab data into an array and sort by order
+    local tabDataArray = {}
+    for _, tabData in pairs(self.tabs) do
         if tabData.button then
-            table.insert(tabButtons, tabData.button)
+            table.insert(tabDataArray, tabData)
         end
+    end
+    
+    -- Sort by order
+    table.sort(tabDataArray, function(a, b) return a.order < b.order end)
+    
+    -- Extract buttons in sorted order
+    local tabButtons = {}
+    for _, tabData in ipairs(tabDataArray) do
+        table.insert(tabButtons, tabData.button)
     end
     
     -- If no tabs, return early
@@ -218,6 +229,10 @@ function SteamDeckPanels:SetActiveTab(tabId)
             -- Hide the tab
             tab.content:Hide()
             tab.module:OnHide()
+            -- Deactivate cursor for this tab
+            if SteamDeckInterfaceCursorModule then
+                SteamDeckInterfaceCursorModule:Deactivate()
+            end
         end
     end
 
@@ -240,11 +255,24 @@ function SteamDeckPanels:SetActiveTab(tabId)
     -- Show the tab
     tab.module:OnShow()
     tab.content:Show()
+    
+    -- Activate cursor for the active tab (if tab supports navigation)
+    if SteamDeckInterfaceCursorModule and tab.module.GetNavGrid then
+        SteamDeckInterfaceCursorModule:Activate(tab.module)
+    end
 end
 
 function SteamDeckPanels:OpenPanel()
     self.frame:Show()
     self:RepositionTabButtons()
+    
+    -- Activate cursor for active tab if panel is opened
+    if self.activeTabId then
+        local tab = self.tabs[self.activeTabId]
+        if tab and tab.module and tab.module.GetNavGrid and SteamDeckInterfaceCursorModule then
+            SteamDeckInterfaceCursorModule:Activate(tab.module)
+        end
+    end
 end
 
 function SteamDeckPanels:OpenPanelToTab(tabId)
@@ -253,6 +281,10 @@ function SteamDeckPanels:OpenPanelToTab(tabId)
 end
 
 function SteamDeckPanels:ClosePanel()
+    -- Deactivate cursor when panel closes
+    if SteamDeckInterfaceCursorModule then
+        SteamDeckInterfaceCursorModule:Deactivate()
+    end
     self.frame:Hide()
 end
 

@@ -283,6 +283,8 @@ function ReputationTab:Initialize(panel, contentFrame)
     self.name = "Reputation"
     self.panel = panel
     self.content = contentFrame
+    self.leftPaneButtons = {}  -- Store left pane category buttons
+    self.rightPaneEntries = {}  -- Store right pane reputation entries
     
     if not self.content then
         return
@@ -504,6 +506,9 @@ function ReputationTab:Initialize(panel, contentFrame)
             child:SetParent(nil)
         end
         
+        -- Clear stored entries
+        wipe(tab.rightPaneEntries)
+        
         if #expansions == 0 or selectedExpansionIndex < 1 or selectedExpansionIndex > #expansions then
             return
         end
@@ -559,7 +564,8 @@ function ReputationTab:Initialize(panel, contentFrame)
                 isChild = false,
                 factionID = 0
             }
-            CreateReputationHeader(rightContentFrame, fakeFactionData, yOffset, true, leftPadding, rightPadding, tab)
+            local header = CreateReputationHeader(rightContentFrame, fakeFactionData, yOffset, true, leftPadding, rightPadding, tab)
+            table.insert(tab.rightPaneEntries, header)
             yOffset = yOffset - REP_HEADER_HEIGHT
         end
         
@@ -567,6 +573,7 @@ function ReputationTab:Initialize(panel, contentFrame)
             local isChild = repData.isChild or false
             local entry = CreateReputationEntry(rightContentFrame, repData, yOffset, isChild, leftPadding, rightPadding)
             UpdateReputationEntry(entry)
+            table.insert(tab.rightPaneEntries, entry)
             yOffset = yOffset - REP_ENTRY_HEIGHT
         end
         
@@ -574,12 +581,14 @@ function ReputationTab:Initialize(panel, contentFrame)
             local headerSpacing = 16
             yOffset = yOffset - headerSpacing
             local header = CreateReputationHeader(rightContentFrame, group.header, yOffset, true, leftPadding, rightPadding, tab)
+            table.insert(tab.rightPaneEntries, header)
             yOffset = yOffset - REP_HEADER_HEIGHT
             
             for _, repData in ipairs(group.children) do
                 local isChild = repData.isChild or false
                 local entry = CreateReputationEntry(rightContentFrame, repData, yOffset, isChild, leftPadding, rightPadding)
                 UpdateReputationEntry(entry)
+                table.insert(tab.rightPaneEntries, entry)
                 yOffset = yOffset - REP_ENTRY_HEIGHT
             end
         end
@@ -599,6 +608,9 @@ function ReputationTab:Initialize(panel, contentFrame)
             child:SetParent(nil)
         end
         
+        -- Clear stored buttons
+        wipe(tab.leftPaneButtons)
+        
         if #expansions == 0 then
             return
         end
@@ -614,6 +626,9 @@ function ReputationTab:Initialize(panel, contentFrame)
                 UpdateRightPane()
             end)
             
+            -- Store button for navigation
+            table.insert(tab.leftPaneButtons, button)
+            
             yOffset = yOffset - REP_TAB_HEIGHT - REP_TAB_SPACING
         end
         
@@ -625,6 +640,11 @@ function ReputationTab:Initialize(panel, contentFrame)
         CollectExpansions()
         UpdateLeftPane()
         UpdateRightPane()
+        
+        -- Refresh cursor grid if cursor is active for this tab
+        if SteamDeckInterfaceCursorModule then
+            SteamDeckInterfaceCursorModule:RefreshGrid()
+        end
     end
     
     rightScrollBar:SetScript("OnValueChanged", function(self, value)
@@ -666,10 +686,55 @@ function ReputationTab:OnShow()
     if self.content and self.content.reputationContainer and self.content.reputationContainer.UpdateReputation then
         self.content.reputationContainer:UpdateReputation()
     end
+    
+    -- Refresh cursor grid if cursor is active for this tab
+    if SteamDeckInterfaceCursorModule then
+        SteamDeckInterfaceCursorModule:RefreshGrid()
+    end
 end
 
 -- OnHide callback
 function ReputationTab:OnHide()
+end
+
+-- Get navigation grid for cursor system
+-- Build navigation grid from left pane buttons and right pane entries
+-- Returns a 2D grid structure: grid[row][col] = frame
+-- Also returns slotToPosition map: slotToPosition[frame] = {row, col}
+-- Layout:
+--   Col 0: Left pane category buttons (rows 0-N)
+--   Col 1: Right pane reputation entries (rows 0-M)
+function ReputationTab:GetNavGrid()
+    local grid = {}
+    local slotToPosition = {}
+    
+    -- Process left pane buttons (col 0)
+    for i, button in ipairs(self.leftPaneButtons) do
+        if button and button:IsShown() then
+            local row = i - 1  -- 0-based row index
+            local col = 0
+            if not grid[row] then
+                grid[row] = {}
+            end
+            grid[row][col] = button
+            slotToPosition[button] = {row = row, col = col}
+        end
+    end
+    
+    -- Process right pane entries (col 1)
+    for i, entry in ipairs(self.rightPaneEntries) do
+        if entry and entry:IsShown() then
+            local row = i - 1  -- 0-based row index
+            local col = 1
+            if not grid[row] then
+                grid[row] = {}
+            end
+            grid[row][col] = entry
+            slotToPosition[entry] = {row = row, col = col}
+        end
+    end
+    
+    return grid, slotToPosition
 end
 
 return ReputationTab

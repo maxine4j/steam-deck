@@ -288,6 +288,7 @@ function EquipmentTab:Initialize(panel, contentFrame)
     self.panel = panel
     self.content = contentFrame
     self.equipmentSlots = {}
+    self.statFrames = {}  -- Store stat frames for navigation
     self.modelScene = nil
     
     -- Apply overrides immediately
@@ -589,6 +590,14 @@ function EquipmentTab:Initialize(panel, contentFrame)
     itemLevelValue:SetJustifyH("CENTER")
     itemLevelValue:SetText("0")
     statsContainer.itemLevelValue = itemLevelValue
+    
+    -- Create selectable frame for Item Level
+    local itemLevelFrame = CreateFrame("Frame", nil, statsContainer)
+    itemLevelFrame:SetAllPoints(itemLevelHeader)
+    itemLevelFrame:EnableMouse(false)
+    itemLevelFrame.statType = "ItemLevel"
+    table.insert(self.statFrames, itemLevelFrame)
+    
     statYOffset = statYOffset - (STAT_HEADER_HEIGHT * 2) - STAT_CATEGORY_SPACING
     
     local leftColumnY = statYOffset
@@ -608,6 +617,16 @@ function EquipmentTab:Initialize(panel, contentFrame)
     primaryStatValue:SetJustifyH("RIGHT")
     primaryStatValue:SetText("0")
     statsContainer.primaryStatValue = primaryStatValue
+    
+    -- Create selectable frame for Primary Stat
+    local primaryStatFrame = CreateFrame("Frame", nil, statsContainer)
+    primaryStatFrame:SetPoint("TOPLEFT", statsContainer, "TOPLEFT", leftColumnX, leftColumnY)
+    primaryStatFrame:SetPoint("TOPRIGHT", statsContainer, "TOPLEFT", leftColumnX + columnWidth, leftColumnY)
+    primaryStatFrame:SetHeight(STAT_ITEM_SPACING)
+    primaryStatFrame:EnableMouse(false)
+    primaryStatFrame.statType = "PrimaryStat"
+    table.insert(self.statFrames, primaryStatFrame)
+    
     leftColumnY = leftColumnY - STAT_ITEM_SPACING
     
     local staminaLabel = statsContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -620,6 +639,16 @@ function EquipmentTab:Initialize(panel, contentFrame)
     staminaValue:SetJustifyH("RIGHT")
     staminaValue:SetText("0")
     statsContainer.staminaValue = staminaValue
+    
+    -- Create selectable frame for Stamina
+    local staminaFrame = CreateFrame("Frame", nil, statsContainer)
+    staminaFrame:SetPoint("TOPLEFT", statsContainer, "TOPLEFT", leftColumnX, leftColumnY)
+    staminaFrame:SetPoint("TOPRIGHT", statsContainer, "TOPLEFT", leftColumnX + columnWidth, leftColumnY)
+    staminaFrame:SetHeight(STAT_ITEM_SPACING)
+    staminaFrame:EnableMouse(false)
+    staminaFrame.statType = "Stamina"
+    table.insert(self.statFrames, staminaFrame)
+    
     leftColumnY = leftColumnY - STAT_ITEM_SPACING
     
     local armorLabel = statsContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -632,6 +661,16 @@ function EquipmentTab:Initialize(panel, contentFrame)
     armorValue:SetJustifyH("RIGHT")
     armorValue:SetText("0")
     statsContainer.armorValue = armorValue
+    
+    -- Create selectable frame for Armor
+    local armorFrame = CreateFrame("Frame", nil, statsContainer)
+    armorFrame:SetPoint("TOPLEFT", statsContainer, "TOPLEFT", leftColumnX, leftColumnY)
+    armorFrame:SetPoint("TOPRIGHT", statsContainer, "TOPLEFT", leftColumnX + columnWidth, leftColumnY)
+    armorFrame:SetHeight(STAT_ITEM_SPACING)
+    armorFrame:EnableMouse(false)
+    armorFrame.statType = "Armor"
+    table.insert(self.statFrames, armorFrame)
+    
     leftColumnY = leftColumnY - STAT_ITEM_SPACING
     
     local movementSpeedLabel = statsContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -644,6 +683,15 @@ function EquipmentTab:Initialize(panel, contentFrame)
     movementSpeedValue:SetJustifyH("RIGHT")
     movementSpeedValue:SetText("0%")
     statsContainer.movementSpeedValue = movementSpeedValue
+    
+    -- Create selectable frame for Movement Speed
+    local movementSpeedFrame = CreateFrame("Frame", nil, statsContainer)
+    movementSpeedFrame:SetPoint("TOPLEFT", statsContainer, "TOPLEFT", leftColumnX, leftColumnY)
+    movementSpeedFrame:SetPoint("TOPRIGHT", statsContainer, "TOPLEFT", leftColumnX + columnWidth, leftColumnY)
+    movementSpeedFrame:SetHeight(STAT_ITEM_SPACING)
+    movementSpeedFrame:EnableMouse(false)
+    movementSpeedFrame.statType = "MovementSpeed"
+    table.insert(self.statFrames, movementSpeedFrame)
     
     local enhancementsHeader = CreateStatCategoryHeader(statsContainer, "Enhancements", rightColumnY, columnWidth)
     enhancementsHeader:SetPoint("TOPLEFT", statsContainer, "TOPLEFT", rightColumnX, rightColumnY)
@@ -659,6 +707,16 @@ function EquipmentTab:Initialize(panel, contentFrame)
     critValue:SetJustifyH("RIGHT")
     critValue:SetText("0.0%")
     statsContainer.critValue = critValue
+    
+    -- Create selectable frame for Critical Strike
+    local critFrame = CreateFrame("Frame", nil, statsContainer)
+    critFrame:SetPoint("TOPLEFT", statsContainer, "TOPLEFT", rightColumnX, rightColumnY)
+    critFrame:SetPoint("TOPRIGHT", statsContainer, "TOPRIGHT", 0, rightColumnY)
+    critFrame:SetHeight(STAT_ITEM_SPACING)
+    critFrame:EnableMouse(false)
+    critFrame.statType = "CriticalStrike"
+    table.insert(self.statFrames, critFrame)
+    
     rightColumnY = rightColumnY - STAT_ITEM_SPACING
     
     local hasteLabel = statsContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -671,6 +729,16 @@ function EquipmentTab:Initialize(panel, contentFrame)
     hasteValue:SetJustifyH("RIGHT")
     hasteValue:SetText("0.0%")
     statsContainer.hasteValue = hasteValue
+    
+    -- Create selectable frame for Haste
+    local hasteFrame = CreateFrame("Frame", nil, statsContainer)
+    hasteFrame:SetPoint("TOPLEFT", statsContainer, "TOPLEFT", rightColumnX, rightColumnY)
+    hasteFrame:SetPoint("TOPRIGHT", statsContainer, "TOPRIGHT", 0, rightColumnY)
+    hasteFrame:SetHeight(STAT_ITEM_SPACING)
+    hasteFrame:EnableMouse(false)
+    hasteFrame.statType = "Haste"
+    table.insert(self.statFrames, hasteFrame)
+    
     rightColumnY = rightColumnY - STAT_ITEM_SPACING
     
     local masteryLabel = statsContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -683,6 +751,16 @@ function EquipmentTab:Initialize(panel, contentFrame)
     masteryValue:SetJustifyH("RIGHT")
     masteryValue:SetText("0.0%")
     statsContainer.masteryValue = masteryValue
+    
+    -- Create selectable frame for Mastery
+    local masteryFrame = CreateFrame("Frame", nil, statsContainer)
+    masteryFrame:SetPoint("TOPLEFT", statsContainer, "TOPLEFT", rightColumnX, rightColumnY)
+    masteryFrame:SetPoint("TOPRIGHT", statsContainer, "TOPRIGHT", 0, rightColumnY)
+    masteryFrame:SetHeight(STAT_ITEM_SPACING)
+    masteryFrame:EnableMouse(false)
+    masteryFrame.statType = "Mastery"
+    table.insert(self.statFrames, masteryFrame)
+    
     rightColumnY = rightColumnY - STAT_ITEM_SPACING
     
     local versLabel = statsContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -695,6 +773,15 @@ function EquipmentTab:Initialize(panel, contentFrame)
     versValue:SetJustifyH("RIGHT")
     versValue:SetText("0.0%")
     statsContainer.versValue = versValue
+    
+    -- Create selectable frame for Versatility
+    local versFrame = CreateFrame("Frame", nil, statsContainer)
+    versFrame:SetPoint("TOPLEFT", statsContainer, "TOPLEFT", rightColumnX, rightColumnY)
+    versFrame:SetPoint("TOPRIGHT", statsContainer, "TOPRIGHT", 0, rightColumnY)
+    versFrame:SetHeight(STAT_ITEM_SPACING)
+    versFrame:EnableMouse(false)
+    versFrame.statType = "Versatility"
+    table.insert(self.statFrames, versFrame)
     
     statsContainer.UpdateStats = UpdateStats
     self.statsContainer = statsContainer
@@ -728,6 +815,11 @@ function EquipmentTab:Refresh()
     if self.statsContainer and self.statsContainer.UpdateStats then
         self.statsContainer:UpdateStats()
     end
+    
+    -- Refresh cursor grid if cursor is active for this tab
+    if SteamDeckInterfaceCursorModule then
+        SteamDeckInterfaceCursorModule:RefreshGrid()
+    end
 end
 
 -- OnShow callback
@@ -737,6 +829,106 @@ end
 
 -- OnHide callback
 function EquipmentTab:OnHide()
+end
+
+-- Get navigation grid for cursor system
+-- Build navigation grid from equipment slots and stats
+-- Returns a 2D grid structure: grid[row][col] = slot/frame
+-- Also returns slotToPosition map: slotToPosition[slot/frame] = {row, col}
+-- Layout:
+--   Row 0-7: Left column (col 0) and Right column (col 1) - equipment slots
+--   Row 8: Bottom weapon slots (col 0 = MainHand, col 1 = SecondaryHand)
+--   Row 9: Item Level (col 0, full width)
+--   Rows 10-13: Stats (col 0 = left column stats, col 1 = right column stats)
+function EquipmentTab:GetNavGrid()
+    local grid = {}
+    local slotToPosition = {}
+    
+    -- Process left column slots (rows 0-7, col 0)
+    for i, slotName in ipairs(LEFT_SLOTS) do
+        local slot = self.equipmentSlots[i]
+        if slot and slot:IsShown() then
+            local row = i - 1  -- 0-based row index
+            local col = 0
+            if not grid[row] then
+                grid[row] = {}
+            end
+            grid[row][col] = slot
+            slotToPosition[slot] = {row = row, col = col}
+        end
+    end
+    
+    -- Process right column slots (rows 0-7, col 1)
+    for i, slotName in ipairs(RIGHT_SLOTS) do
+        local slot = self.equipmentSlots[#LEFT_SLOTS + i]
+        if slot and slot:IsShown() then
+            local row = i - 1  -- 0-based row index
+            local col = 1
+            if not grid[row] then
+                grid[row] = {}
+            end
+            grid[row][col] = slot
+            slotToPosition[slot] = {row = row, col = col}
+        end
+    end
+    
+    -- Process bottom weapon slots (row 8, cols 0-1)
+    for i, slotName in ipairs(BOTTOM_SLOTS) do
+        local slot = self.equipmentSlots[#LEFT_SLOTS + #RIGHT_SLOTS + i]
+        if slot and slot:IsShown() then
+            local row = 8
+            local col = i - 1  -- 0 = MainHand, 1 = SecondaryHand
+            if not grid[row] then
+                grid[row] = {}
+            end
+            grid[row][col] = slot
+            slotToPosition[slot] = {row = row, col = col}
+        end
+    end
+    
+    -- Process stat frames
+    -- Item Level (row 9, col 0 - full width, but we'll put it in col 0)
+    if self.statFrames[1] and self.statFrames[1]:IsShown() then  -- Item Level is first
+        local row = 9
+        local col = 0
+        if not grid[row] then
+            grid[row] = {}
+        end
+        grid[row][col] = self.statFrames[1]
+        slotToPosition[self.statFrames[1]] = {row = row, col = col}
+    end
+    
+    -- Left column stats (rows 10-13, col 0)
+    -- Order: PrimaryStat, Stamina, Armor, MovementSpeed
+    local leftStatOrder = {2, 3, 4, 5}  -- Indices in statFrames array
+    for i, statIndex in ipairs(leftStatOrder) do
+        if self.statFrames[statIndex] and self.statFrames[statIndex]:IsShown() then
+            local row = 9 + i  -- Rows 10-13
+            local col = 0
+            if not grid[row] then
+                grid[row] = {}
+            end
+            grid[row][col] = self.statFrames[statIndex]
+            slotToPosition[self.statFrames[statIndex]] = {row = row, col = col}
+        end
+    end
+    
+    -- Right column stats (rows 10-13, col 1)
+    -- Order: CriticalStrike, Haste, Mastery, Versatility
+    local rightStatOrder = {6, 7, 8, 9}  -- Indices in statFrames array
+    for i, statIndex in ipairs(rightStatOrder) do
+        if self.statFrames[statIndex] and self.statFrames[statIndex]:IsShown() then
+            local row = 9 + i  -- Rows 10-13
+            local col = 1
+            if not grid[row] then
+                grid[row] = {}
+            end
+            grid[row][col] = self.statFrames[statIndex]
+            slotToPosition[self.statFrames[statIndex]] = {row = row, col = col}
+        end
+    end
+    
+    return grid, slotToPosition
 end
 
 return EquipmentTab
