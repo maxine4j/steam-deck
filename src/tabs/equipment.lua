@@ -931,4 +931,183 @@ function EquipmentTab:GetNavGrid()
     return grid, slotToPosition
 end
 
+-- Get context menu data for a selected slot or stat
+-- selection: The selected frame/slot/stat
+-- Returns: {content, options} or nil if not applicable
+function EquipmentTab:GetContextMenuForSelection(selection)
+    if not selection then
+        return nil
+    end
+    
+    -- Check if it's an equipment slot (has slotID and slotName)
+    if selection.slotID and selection.slotName then
+        local itemLink = GetInventoryItemLink("player", selection.slotID)
+        if not itemLink then
+            return nil
+        end
+        
+        -- Get item info
+        local itemName = select(1, GetItemInfo(itemLink))
+        local itemTexture = GetInventoryItemTexture("player", selection.slotID)
+        local _, _, itemQuality = GetItemInfo(itemLink)
+        itemQuality = itemQuality or 0
+        
+        -- Get tooltip data
+        local tooltipData = C_TooltipInfo.GetInventoryItem("player", selection.slotID)
+        
+        -- Get name color based on quality
+        local r, g, b = GetItemQualityColor(itemQuality)
+        local nameColor = {r, g, b, 1}
+        
+        -- Create content frame
+        local contentFrame = CreateFrame("Frame", nil, UIParent) -- Parent to UIParent initially, cursor.lua will reparent
+        contentFrame:SetSize(340, 1) -- Dynamic height
+        contentFrame:Hide()
+        
+        -- Item icon with border
+        local itemIconBg = CreateFrame("Frame", nil, contentFrame)
+        itemIconBg:SetSize(64, 64)
+        itemIconBg:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 10, 0)
+        contentFrame.itemIconBg = itemIconBg
+        
+        local icon = itemIconBg:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(60, 60)
+        icon:SetPoint("CENTER", itemIconBg, "CENTER", 0, 0)
+        icon:SetTexture(itemTexture or "Interface\\Icons\\INV_Misc_QuestionMark")
+        contentFrame.itemIcon = icon
+        
+        -- Icon border (for quality)
+        local iconBorder = itemIconBg:CreateTexture(nil, "OVERLAY")
+        iconBorder:SetSize(64, 64)
+        iconBorder:SetPoint("CENTER", itemIconBg, "CENTER", 0, 0)
+        iconBorder:SetTexture("Interface\\Common\\WhiteIconFrame")
+        if itemQuality and itemQuality > 0 then
+            iconBorder:SetVertexColor(nameColor[1], nameColor[2], nameColor[3], 1)
+            iconBorder:Show()
+        else
+            iconBorder:Hide()
+        end
+        contentFrame.iconBorder = iconBorder
+        
+        -- Item name
+        local nameText = contentFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+        nameText:SetPoint("LEFT", itemIconBg, "RIGHT", 10, 0)
+        nameText:SetPoint("RIGHT", contentFrame, "RIGHT", -10, 0)
+        nameText:SetJustifyH("LEFT")
+        nameText:SetText(itemName or "Unknown Item")
+        nameText:SetTextColor(nameColor[1], nameColor[2], nameColor[3], nameColor[4])
+        contentFrame.itemName = nameText
+        
+        local currentY = -itemIconBg:GetHeight() - 10 -- Start tooltip below icon/name with margin
+        contentFrame.tooltipLines = {}
+        
+        -- Display tooltip lines with dynamic sizing
+        if tooltipData and tooltipData.lines then
+            local spacing = 2
+            local baseFont, baseFontHeight, baseFlags = GameFontNormal:GetFont()
+            local defaultFontHeight = baseFontHeight * 1.5
+            local fontHeight = defaultFontHeight
+            
+            local displayedLineIndex = 0
+            local linesToDisplay = {}
+            
+            for i, lineData in ipairs(tooltipData.lines) do
+                local text = lineData.leftText or ""
+                if not (i == 1 and text == itemName) then
+                    displayedLineIndex = displayedLineIndex + 1
+                    table.insert(linesToDisplay, {
+                        data = lineData,
+                        index = displayedLineIndex
+                    })
+                end
+            end
+            
+            -- Calculate content height with default font
+            local actualContentHeight = 0
+            for _, lineInfo in ipairs(linesToDisplay) do
+                local line = contentFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                table.insert(contentFrame.tooltipLines, line)
+                
+                line:SetFont(baseFont, defaultFontHeight, baseFlags)
+                line:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 10, currentY)
+                line:SetPoint("RIGHT", contentFrame, "RIGHT", -10, currentY)
+                line:SetJustifyH("LEFT")
+                line:SetJustifyV("TOP")
+                line:SetNonSpaceWrap(true)
+                line:SetText(lineInfo.data.leftText or "")
+                
+                local lineHeight = line:GetHeight()
+                actualContentHeight = actualContentHeight + lineHeight + spacing
+            end
+            
+            currentY = -itemIconBg:GetHeight() - 10 -- Reset for final positioning
+            for _, lineInfo in ipairs(linesToDisplay) do
+                local line = contentFrame.tooltipLines[lineInfo.index]
+                line:SetFont(baseFont, fontHeight, baseFlags)
+                line:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 10, currentY)
+                line:SetPoint("RIGHT", contentFrame, "RIGHT", -10, currentY)
+                
+                local text = lineInfo.data.leftText or ""
+                if lineInfo.data.rightText and lineInfo.data.rightText ~= "" then
+                    text = text .. " " .. lineInfo.data.rightText
+                end
+                if lineInfo.data.leftColor then
+                    line:SetTextColor(lineInfo.data.leftColor.r, lineInfo.data.leftColor.g, lineInfo.data.leftColor.b, lineInfo.data.leftColor.a or 1)
+                else
+                    line:SetTextColor(1, 1, 1)
+                end
+                line:SetText(text)
+                line:Show()
+                
+                local lineHeightActual = line:GetHeight()
+                currentY = currentY - (lineHeightActual + spacing)
+            end
+        end
+        
+        contentFrame:SetHeight(math.abs(currentY) + itemIconBg:GetHeight() + 20) -- Total height including icon/name area and padding
+        
+        -- Build options
+        local options = {}
+        
+        -- Unequip option (item is equipped)
+        table.insert(options, {
+            text = "Unequip",
+            action = function()
+                PickupInventoryItem(selection.slotID)
+                if CursorHasItem() then
+                    -- Try to place in backpack first
+                    if PutItemInBackpack() then
+                        return
+                    end
+                    -- Try bags 1-5
+                    for bag = 1, 5 do
+                        if PutItemInBag(30 + bag) then
+                            return
+                        end
+                    end
+                    -- If all failed, clear cursor
+                    ClearCursor()
+                end
+            end
+        })
+        
+        -- Inspect option
+        table.insert(options, {
+            text = "Inspect",
+            action = function()
+                DressUpLink(itemLink)
+            end
+        })
+        
+        return {
+            content = contentFrame,
+            options = options
+        }
+    end
+    
+    -- For stat frames, we could return nil or show stat info
+    -- For now, return nil (no context menu for stats)
+    return nil
+end
+
 return EquipmentTab

@@ -582,4 +582,183 @@ function BagsTab:GetNavGrid()
     return grid, slotToPosition
 end
 
+-- Get context menu data for a selected slot
+-- selection: The selected frame/slot
+-- Returns: {content, options} or nil if not applicable
+function BagsTab:GetContextMenuForSelection(selection)
+    if not selection then
+        return nil
+    end
+    
+    -- Check if it's a bag slot (has bagID and slotID)
+    if not selection.bagID or not selection.slotID then
+        return nil
+    end
+    
+    local itemLink = C_Container.GetContainerItemLink(selection.bagID, selection.slotID)
+    if not itemLink then
+        return nil
+    end
+    
+    -- Get item info
+    local containerInfo = C_Container.GetContainerItemInfo(selection.bagID, selection.slotID)
+    if not containerInfo then
+        return nil
+    end
+    
+    local itemName = select(1, GetItemInfo(itemLink))
+    local itemIcon = containerInfo.iconFileID
+    local itemQuality = containerInfo.quality or 0
+    
+    -- Get tooltip data
+    local tooltipData = C_TooltipInfo.GetBagItem(selection.bagID, selection.slotID)
+    
+    -- Create content frame
+    local content = CreateFrame("Frame", nil, nil)
+    content:SetSize(340, 100)  -- Will be resized based on content
+    
+    -- Item display area (top section)
+    local itemDisplay = CreateFrame("Frame", nil, content)
+    itemDisplay:SetSize(340, 80)
+    itemDisplay:SetPoint("TOP", content, "TOP", 0, 0)
+    content.itemDisplay = itemDisplay
+    
+    -- Item icon with border
+    local itemIconBg = CreateFrame("Frame", nil, itemDisplay)
+    itemIconBg:SetSize(64, 64)
+    itemIconBg:SetPoint("TOPLEFT", itemDisplay, "TOPLEFT", 10, 0)
+    
+    local itemIconTexture = itemIconBg:CreateTexture(nil, "ARTWORK")
+    itemIconTexture:SetSize(60, 60)
+    itemIconTexture:SetPoint("CENTER", itemIconBg, "CENTER", 0, 0)
+    itemIconTexture:SetTexture(itemIcon or "Interface\\Icons\\INV_Misc_QuestionMark")
+    
+    -- Icon border (for quality)
+    local iconBorder = itemIconBg:CreateTexture(nil, "OVERLAY")
+    iconBorder:SetSize(64, 64)
+    iconBorder:SetPoint("CENTER", itemIconBg, "CENTER", 0, 0)
+    iconBorder:SetTexture("Interface\\Common\\WhiteIconFrame")
+    if itemQuality and itemQuality > 0 then
+        local r, g, b = GetItemQualityColor(itemQuality)
+        iconBorder:SetVertexColor(r, g, b, 1)
+        iconBorder:Show()
+    else
+        iconBorder:Hide()
+    end
+    
+    -- Item name
+    local itemNameText = itemDisplay:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+    itemNameText:SetPoint("LEFT", itemIconBg, "RIGHT", 10, 0)
+    itemNameText:SetPoint("RIGHT", itemDisplay, "RIGHT", -10, 0)
+    itemNameText:SetJustifyH("LEFT")
+    itemNameText:SetText(itemName or "Unknown Item")
+    if itemQuality and itemQuality > 0 then
+        local r, g, b = GetItemQualityColor(itemQuality)
+        itemNameText:SetTextColor(r, g, b)
+    else
+        itemNameText:SetTextColor(1, 1, 1)
+    end
+    
+    -- Tooltip area
+    local tooltipArea = CreateFrame("Frame", nil, content)
+    tooltipArea:SetPoint("TOP", itemDisplay, "BOTTOM", 0, 0)
+    tooltipArea:SetPoint("LEFT", content, "LEFT", 10, 0)
+    tooltipArea:SetPoint("RIGHT", content, "RIGHT", -10, 0)
+    content.tooltipArea = tooltipArea
+    
+    -- Display tooltip lines
+    if tooltipData and tooltipData.lines then
+        local baseFont, baseFontHeight, baseFlags = GameFontNormal:GetFont()
+        local defaultFontHeight = baseFontHeight * 1.5
+        local spacing = 2
+        local currentY = 0
+        local displayedLineIndex = 0
+        local tooltipLines = {}
+        
+        -- Collect lines to display (skip item name)
+        for i, lineData in ipairs(tooltipData.lines) do
+            local text = lineData.leftText or ""
+            if not (i == 1 and text == itemName) then
+                displayedLineIndex = displayedLineIndex + 1
+                local line = tooltipArea:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                line:SetFont(baseFont, defaultFontHeight, baseFlags)
+                line:SetPoint("TOPLEFT", tooltipArea, "TOPLEFT", 0, currentY)
+                line:SetPoint("RIGHT", tooltipArea, "RIGHT", 0, 0)
+                line:SetJustifyH("LEFT")
+                line:SetJustifyV("TOP")
+                line:SetNonSpaceWrap(true)
+                
+                if lineData.leftColor then
+                    local a = lineData.leftColor.a
+                    if a then
+                        line:SetTextColor(lineData.leftColor.r, lineData.leftColor.g, lineData.leftColor.b, a)
+                    else
+                        line:SetTextColor(lineData.leftColor.r, lineData.leftColor.g, lineData.leftColor.b)
+                    end
+                else
+                    line:SetTextColor(1, 1, 1)
+                end
+                
+                line:SetText(text)
+                line:Show()
+                
+                local lineHeight = line:GetHeight()
+                currentY = currentY - (lineHeight + spacing)
+                table.insert(tooltipLines, line)
+            end
+        end
+        
+        tooltipArea:SetHeight(math.abs(currentY))
+        content.tooltipLines = tooltipLines
+    else
+        tooltipArea:SetHeight(0)
+    end
+    
+    -- Set content height
+    local contentHeight = itemDisplay:GetHeight() + (tooltipArea:GetHeight() or 0)
+    content:SetHeight(contentHeight)
+    
+    -- Build options
+    local options = {}
+    
+    -- Equip option (for equippable items)
+    local itemInfoObj = C_Item.GetItemInfo(itemLink)
+    if itemInfoObj and C_Item.IsEquippableItem(itemInfoObj) and not C_Item.IsEquippedItem(itemInfoObj) then
+        table.insert(options, {
+            text = "Equip",
+            action = function()
+                C_Item.EquipItemByName(itemLink)
+            end
+        })
+    end
+    
+    -- Inspect option (for gear, mounts, pets, and housing items)
+    table.insert(options, {
+        text = "Inspect",
+        action = function()
+            DressUpLink(itemLink)
+        end
+    })
+    
+    -- Delete option
+    table.insert(options, {
+        text = "Delete",
+        action = function()
+            C_Container.PickupContainerItem(selection.bagID, selection.slotID)
+            if CursorHasItem() then
+                if itemQuality and itemQuality >= 3 and itemQuality ~= 7 then
+                    StaticPopup_Show("DELETE_GOOD_ITEM", itemLink)
+                else
+                    StaticPopup_Show("DELETE_ITEM", itemLink)
+                end
+            end
+        end
+    })
+    
+    return {
+        content = content,
+        options = options
+    }
+end
+
 return BagsTab

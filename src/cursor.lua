@@ -106,6 +106,81 @@ local function CreateHighlightFrame()
     return highlight
 end
 
+-- Auto-scroll to keep selection visible in scrollable areas
+local function AutoScrollToSelection(slot)
+    if not slot or not currentTab then
+        return
+    end
+    
+    -- Check if this tab has a scroll frame (reputation/currencies tabs)
+    local scrollFrame = currentTab.rightScrollFrame
+    if not scrollFrame then
+        return
+    end
+    
+    -- Only auto-scroll for right pane entries (col 1)
+    local pos = slotToPositionMap[slot]
+    if not pos or pos.col ~= 1 then
+        return
+    end
+    
+    -- Get scroll frame dimensions and scroll state
+    local scrollHeight = scrollFrame:GetHeight()
+    local scrollRange = scrollFrame:GetVerticalScrollRange()
+    local currentScroll = scrollFrame:GetVerticalScroll()
+    
+    -- If there's no scroll range, nothing to scroll
+    if scrollRange <= 0 then
+        return
+    end
+    
+    -- Get the scroll child frame
+    local scrollChild = scrollFrame:GetScrollChild()
+    if not scrollChild then
+        return
+    end
+    
+    -- Get slot position relative to scroll child (slots are children of scrollChild)
+    local slotPoint, slotRelativeTo, slotRelativePoint, slotX, slotY = slot:GetPoint(1)
+    if not slotRelativeTo or slotRelativeTo ~= scrollChild then
+        return
+    end
+    
+    -- slotY is negative (top to bottom), so we need to convert it
+    -- The slot's top edge is at -slotY from the top of scrollChild
+    local slotTopFromChild = -slotY
+    local slotBottomFromChild = slotTopFromChild + slot:GetHeight()
+    
+    -- Calculate visible area in scroll child coordinates
+    -- currentScroll is how far we've scrolled down (positive = scrolled down)
+    local visibleTop = currentScroll
+    local visibleBottom = currentScroll + scrollHeight
+    
+    -- Define scroll threshold (percentage of visible height from edges)
+    local scrollThreshold = 0.25  -- 25% from top/bottom
+    local thresholdPixels = scrollHeight * scrollThreshold
+    
+    -- Check if we need to scroll down (slot is near bottom of visible area)
+    local distanceFromVisibleBottom = visibleBottom - slotBottomFromChild
+    if distanceFromVisibleBottom < thresholdPixels and currentScroll < scrollRange then
+        -- Scroll down to bring more content into view
+        local scrollAmount = thresholdPixels - distanceFromVisibleBottom + 50  -- Extra 50px for smooth scrolling
+        local newScroll = math.min(scrollRange, currentScroll + scrollAmount)
+        scrollFrame:SetVerticalScroll(newScroll)
+        return
+    end
+    
+    -- Check if we need to scroll up (slot is near top of visible area)
+    local distanceFromVisibleTop = slotTopFromChild - visibleTop
+    if distanceFromVisibleTop < thresholdPixels and currentScroll > 0 then
+        -- Scroll up to bring more content into view
+        local scrollAmount = thresholdPixels - distanceFromVisibleTop + 50  -- Extra 50px for smooth scrolling
+        local newScroll = math.max(0, currentScroll - scrollAmount)
+        scrollFrame:SetVerticalScroll(newScroll)
+        return
+    end
+end
+
 -- Update highlight frame to match a slot's position and size
 local function UpdateHighlight(slot)
     if not highlightFrame or not slot then
@@ -168,6 +243,9 @@ local function UpdateHighlight(slot)
     highlightFrame.pulseTime = 0
     
     highlightFrame:Show()
+    
+    -- Auto-scroll if needed (for reputation/currencies tabs)
+    AutoScrollToSelection(slot)
 end
 
 
@@ -483,10 +561,62 @@ local function NavigateToAdjacentSlot(grid, slotToPosition, currentSlot, directi
     return nil
 end
 
+-- Forward declaration for ShowContextMenu (defined later)
+local ShowContextMenu
+
 -- Handle item usage/interaction
 local function HandleItemUse()
     if not currentSelection then
         return
+    end
+    
+    -- Check if it's a reputation entry - show context menu
+    -- Check for factionID and factionIndex properties (non-header entries)
+    if currentSelection.factionID and currentSelection.factionIndex then
+        -- Make sure it's not a header
+        local factionData = C_Reputation.GetFactionDataByIndex(currentSelection.factionIndex)
+        if factionData and not factionData.isHeader then
+            ShowContextMenu()
+            return
+        end
+    end
+    
+    -- Also check if it's a reputation entry by checking if it has factionData
+    if currentSelection.factionData and currentSelection.factionData.factionID then
+        -- Make sure it's not a header
+        if not currentSelection.factionData.isHeader then
+            ShowContextMenu()
+            return
+        end
+    end
+    
+    -- Check if it's a button (non-item frame) - click it
+    if currentSelection:IsObjectType("Button") then
+        local onClickHandler = currentSelection:GetScript("OnClick")
+        if onClickHandler then
+            -- Call the button's OnClick handler
+            onClickHandler(currentSelection, "LeftButton")
+            -- Refresh navigation grid after clicking (content may have changed)
+            -- Use a small delay to ensure UI updates have completed
+            C_Timer.After(0.05, function()
+                if currentTab then
+                    InterfaceCursor:RefreshGrid()
+                end
+            end)
+            return
+        else
+            -- Fallback: use Click method if available
+            if currentSelection.Click then
+                currentSelection:Click("LeftButton")
+                -- Refresh navigation grid after clicking (content may have changed)
+                C_Timer.After(0.05, function()
+                    if currentTab then
+                        InterfaceCursor:RefreshGrid()
+                    end
+                end)
+                return
+            end
+        end
     end
     
     -- Check if it's a bag slot (has bagID and slotID)
@@ -644,8 +774,16 @@ function InterfaceCursor:Activate(tab)
         navigationGrid, slotToPositionMap = tab:GetNavGrid()
     end
     
-    -- Show highlight if we have a selection
+    -- Reset selection if current selection is not in the new grid or not visible
     if currentSelection then
+        local pos = slotToPositionMap[currentSelection]
+        if not pos or not currentSelection:IsShown() then
+            currentSelection = nil
+        end
+    end
+    
+    -- Show highlight if we have a valid selection
+    if currentSelection and currentSelection:IsShown() then
         UpdateHighlight(currentSelection)
     elseif navigationGrid then
         -- Select first slot if available
@@ -674,9 +812,31 @@ end
 -- Refresh navigation grid from current tab
 function InterfaceCursor:RefreshGrid()
     if currentTab and currentTab.GetNavGrid then
+        -- Store the current position before refreshing
+        local savedRow = nil
+        local savedCol = nil
+        if currentSelection then
+            local pos = slotToPositionMap[currentSelection]
+            if pos then
+                savedRow = pos.row
+                savedCol = pos.col
+            end
+        end
+        
+        -- Refresh the grid
         navigationGrid, slotToPositionMap = currentTab:GetNavGrid()
         
-        -- Validate current selection
+        -- Try to restore selection at the same position
+        if savedRow ~= nil and savedCol ~= nil and navigationGrid then
+            local slotAtPosition = GetSlotAtPosition(navigationGrid, savedRow, savedCol)
+            if slotAtPosition and slotAtPosition:IsShown() then
+                -- Found a slot at the same position, select it
+                SetSelection(slotAtPosition)
+                return
+            end
+        end
+        
+        -- Validate current selection (fallback if position restore failed)
         if currentSelection then
             local pos = slotToPositionMap[currentSelection]
             if not pos or not currentSelection:IsShown() then
@@ -750,56 +910,13 @@ local function CreateContextMenu()
     rightBorder:SetPoint("TOPRIGHT", border, "TOPRIGHT", 0, 0)
     rightBorder:SetPoint("BOTTOMRIGHT", border, "BOTTOMRIGHT", 0, 0)
     
-    -- Item display area (top section)
-    local itemDisplay = CreateFrame("Frame", nil, menu)
-    itemDisplay:SetSize(340, 80)  -- Just enough for icon and name
-    itemDisplay:SetPoint("TOP", menu, "TOP", 0, -20)
-    menu.itemDisplay = itemDisplay
-    
-    -- Item icon with border
-    local itemIconBg = CreateFrame("Frame", nil, itemDisplay)
-    itemIconBg:SetSize(64, 64)
-    itemIconBg:SetPoint("TOPLEFT", itemDisplay, "TOPLEFT", 10, 0)
-    menu.itemIconBg = itemIconBg
-    
-    local itemIcon = itemIconBg:CreateTexture(nil, "ARTWORK")
-    itemIcon:SetSize(60, 60)
-    itemIcon:SetPoint("CENTER", itemIconBg, "CENTER", 0, 0)
-    itemIcon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-    menu.itemIcon = itemIcon
-    
-    -- Icon border (for quality)
-    local iconBorder = itemIconBg:CreateTexture(nil, "OVERLAY")
-    iconBorder:SetSize(64, 64)
-    iconBorder:SetPoint("CENTER", itemIconBg, "CENTER", 0, 0)
-    iconBorder:SetTexture("Interface\\Common\\WhiteIconFrame")
-    iconBorder:Hide()
-    menu.iconBorder = iconBorder
-    
-    -- Item name
-    local itemName = itemDisplay:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-    itemName:SetPoint("LEFT", itemIconBg, "RIGHT", 10, 0)
-    itemName:SetPoint("RIGHT", itemDisplay, "RIGHT", -10, 0)
-    itemName:SetJustifyH("LEFT")
-    itemName:SetText("Item Name")
-    menu.itemName = itemName
-    
-    -- Custom tooltip area (centered, fills space between item display and options)
-    local tooltipArea = CreateFrame("Frame", nil, menu)
-    tooltipArea:SetPoint("TOP", itemDisplay, "BOTTOM", 0, 0)  -- No gap, tooltip starts immediately after item name
-    tooltipArea:SetPoint("BOTTOM", menu, "BOTTOM", 220, 0)  -- Leave room for options at bottom
-    tooltipArea:SetPoint("LEFT", menu, "LEFT", 10, 0)
-    tooltipArea:SetPoint("RIGHT", menu, "RIGHT", -10, 0)
-    menu.tooltipArea = tooltipArea
-    
-    -- Content frame for tooltip text (no scroll, just regular frame)
-    local contentFrame = CreateFrame("Frame", nil, tooltipArea)
-    contentFrame:SetWidth(300)
-    contentFrame:SetPoint("TOPLEFT", tooltipArea, "TOPLEFT", 10, 0)  -- No top margin, starts at top
-    menu.tooltipContent = contentFrame
-    
-    -- Tooltip text lines container
-    menu.tooltipLines = {}
+    -- Content area (where tabs place their content frame)
+    local contentArea = CreateFrame("Frame", nil, menu)
+    contentArea:SetPoint("TOP", menu, "TOP", 0, -20)
+    contentArea:SetPoint("BOTTOM", menu, "BOTTOM", 220, 0)  -- Leave room for options at bottom
+    contentArea:SetPoint("LEFT", menu, "LEFT", 10, 0)
+    contentArea:SetPoint("RIGHT", menu, "RIGHT", -10, 0)
+    menu.contentArea = contentArea
     
     -- Options list (bottom section, anchored to bottom of menu)
     local optionsList = CreateFrame("Frame", nil, menu)
@@ -860,6 +977,7 @@ local function GetItemInfoFromSelection()
     }
 end
 
+
 -- Build menu options based on item type
 local function BuildMenuOptions(itemInfo)
     local options = {}
@@ -878,6 +996,46 @@ local function BuildMenuOptions(itemInfo)
                 action = function()
                     -- Equip item by name/link
                     C_Item.EquipItemByName(itemInfo.itemLink)
+                end
+            })
+        end
+    end
+    
+    -- Unequip option (for equipped items in equipment slots)
+    if itemInfo.isEquipment and itemInfo.slotID and itemInfo.itemLink then
+        -- Check if there's actually an item equipped in this slot
+        local equippedItemLink = GetInventoryItemLink("player", itemInfo.slotID)
+        if equippedItemLink then
+            table.insert(options, {
+                text = "Unequip",
+                action = function()
+                    -- Check if item is locked (can't unequip during combat for some slots)
+                    if IsInventoryItemLocked(itemInfo.slotID) then
+                        return
+                    end
+                    
+                    -- Pick up the item from the equipment slot
+                    PickupInventoryItem(itemInfo.slotID)
+                    
+                    -- Try to put it in the backpack first
+                    if CursorHasItem() then
+                        if PutItemInBackpack() then
+                            return
+                        end
+                        
+                        -- If backpack is full, try other bags (bags 1-5, inventory IDs 31-35)
+                        -- CONTAINER_BAG_OFFSET = 30, so bag 1 = 31, bag 2 = 32, etc.
+                        for bag = 1, 5 do
+                            if PutItemInBag(30 + bag) then
+                                return
+                            end
+                        end
+                        
+                        -- If all bags are full, clear cursor (item stays equipped)
+                        if CursorHasItem() then
+                            ClearCursor()
+                        end
+                    end
                 end
             })
         end
@@ -947,256 +1105,298 @@ local function UpdateContextMenu()
         return
     end
     
-    local itemInfo = GetItemInfoFromSelection()
-    if not itemInfo then
-        contextMenuFrame:Hide()
-        contextMenuActive = false
+    -- Try to get context menu data from the current tab first (new abstraction)
+    local menuData = nil
+    if currentTab and currentTab.GetContextMenuForSelection then
+        menuData = currentTab:GetContextMenuForSelection(currentSelection)
+    end
+    
+    if menuData then
+        -- Hide/clear any previous content
+        if contextMenuFrame.currentContent then
+            contextMenuFrame.currentContent:Hide()
+            contextMenuFrame.currentContent:SetParent(nil)
+        end
+        
+        -- Set content frame from tab
+        if menuData.content then
+            menuData.content:SetParent(contextMenuFrame.contentArea)
+            menuData.content:ClearAllPoints()
+            menuData.content:SetPoint("TOPLEFT", contextMenuFrame.contentArea, "TOPLEFT", 0, 0)
+            menuData.content:SetPoint("TOPRIGHT", contextMenuFrame.contentArea, "TOPRIGHT", 0, 0)
+            -- Don't anchor bottom - let it grow naturally so we can measure it
+            menuData.content:Show()
+            contextMenuFrame.currentContent = menuData.content
+        end
+        
+        -- Use options from tab
+        contextMenuOptions = menuData.options or {}
+        
+        -- Clear existing option buttons
+        for _, button in ipairs(contextMenuFrame.optionButtons) do
+            button:Hide()
+        end
+        wipe(contextMenuFrame.optionButtons)
+        
+        if #contextMenuOptions == 0 then
+            -- No options available
+            local noOptionsText = contextMenuFrame.optionsList:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            noOptionsText:SetPoint("CENTER", contextMenuFrame.optionsList, "CENTER", 0, 0)
+            noOptionsText:SetText("No actions available")
+            table.insert(contextMenuFrame.optionButtons, noOptionsText)
+        else
+            -- Create option buttons
+            local buttonHeight = 30
+            local spacing = 5
+            local startY = 0
+            
+            for i, option in ipairs(contextMenuOptions) do
+                local button = CreateFrame("Frame", nil, contextMenuFrame.optionsList)
+                button:SetSize(320, buttonHeight)
+                button:SetPoint("BOTTOM", contextMenuFrame.optionsList, "BOTTOM", 0, startY + (i - 1) * (buttonHeight + spacing))
+                
+                local bg = button:CreateTexture(nil, "BACKGROUND")
+                bg:SetAllPoints(button)
+                bg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
+                button.bg = bg
+                
+                local highlight = button:CreateTexture(nil, "OVERLAY")
+                highlight:SetAllPoints(button)
+                highlight:SetColorTexture(1, 1, 0, 0.3)
+                highlight:Hide()
+                button.highlight = highlight
+                
+                local text = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                text:SetPoint("LEFT", button, "LEFT", 10, 0)
+                text:SetText(option.text)
+                button.text = text
+                
+                button.option = option
+                button.index = i
+                table.insert(contextMenuFrame.optionButtons, button)
+            end
+        end
+        
+        -- Reset selection to first option
+        contextMenuSelectedIndex = 1
+        UpdateContextMenuSelection()
+        
+        -- Calculate and set menu height with dynamic sizing
+        if contextMenuFrame.currentContent then
+            -- First, calculate options list height
+            local optionsListHeight = #contextMenuOptions * 35
+            local menuPadding = 60  -- Top and bottom padding
+            
+            -- Calculate available screen height
+            local screenHeight = GetScreenHeight()
+            local maxMenuHeight = screenHeight - 40  -- Leave some margin from screen edges
+            local maxContentHeight = maxMenuHeight - optionsListHeight - menuPadding
+            
+            -- Measure actual content height by finding the bounds of all visible elements
+            local function MeasureContentHeight(frame)
+                local topY = 0
+                local bottomY = math.huge
+                local hasBounds = false
+                
+                -- Helper to check a region's bounds
+                local function CheckRegionBounds(region, parentFrame)
+                    if not region:IsShown() then
+                        return
+                    end
+                    
+                    if region:IsObjectType("FontString") then
+                        -- For FontStrings, use GetStringHeight which accounts for wrapping
+                        local point, relativeTo, relativePoint, x, y = region:GetPoint()
+                        if y then
+                            local height = region:GetStringHeight() or region:GetHeight() or 0
+                            if height > 0 then
+                                topY = math.max(topY, y)
+                                bottomY = math.min(bottomY, y - height)
+                                hasBounds = true
+                            end
+                        end
+                    else
+                        -- For other regions, use GetHeight
+                        local point, relativeTo, relativePoint, x, y = region:GetPoint()
+                        if y then
+                            local height = region:GetHeight() or 0
+                            if height > 0 then
+                                topY = math.max(topY, y)
+                                bottomY = math.min(bottomY, y - height)
+                                hasBounds = true
+                            end
+                        end
+                    end
+                end
+                
+                -- Check all regions
+                local regions = {frame:GetRegions()}
+                for _, region in ipairs(regions) do
+                    CheckRegionBounds(region, frame)
+                end
+                
+                -- Recursively check children
+                local function CheckChildBounds(child, parentFrame)
+                    if not child:IsShown() then
+                        return
+                    end
+                    
+                    local point, relativeTo, relativePoint, x, y = child:GetPoint()
+                    if y then
+                        local height = child:GetHeight() or 0
+                        if height > 0 then
+                            topY = math.max(topY, y)
+                            bottomY = math.min(bottomY, y - height)
+                            hasBounds = true
+                        end
+                    end
+                    
+                    -- Check child's regions
+                    local childRegions = {child:GetRegions()}
+                    for _, region in ipairs(childRegions) do
+                        CheckRegionBounds(region, child)
+                    end
+                    
+                    -- Recursively check grandchildren
+                    local grandchildren = {child:GetChildren()}
+                    for _, grandchild in ipairs(grandchildren) do
+                        CheckChildBounds(grandchild, child)
+                    end
+                end
+                
+                local children = {frame:GetChildren()}
+                for _, child in ipairs(children) do
+                    CheckChildBounds(child, frame)
+                end
+                
+                if hasBounds and topY ~= 0 and bottomY ~= math.huge then
+                    return math.max(0, topY - bottomY)
+                end
+                
+                -- Fallback to GetHeight
+                return frame:GetHeight() or 0
+            end
+            
+            local contentHeight = MeasureContentHeight(contextMenuFrame.currentContent)
+            
+            -- If content is too tall, try to expand menu first
+            if contentHeight > maxContentHeight then
+                -- Try expanding menu up to screen height
+                local expandedMenuHeight = contentHeight + optionsListHeight + menuPadding
+                if expandedMenuHeight <= maxMenuHeight then
+                    -- Menu can fit with expansion
+                    contextMenuFrame:SetHeight(expandedMenuHeight)
+                else
+                    -- Still too tall, need to shrink font size
+                    -- Calculate scale factor
+                    local scaleFactor = maxContentHeight / contentHeight
+                    -- Ensure minimum readable font size (at least 0.5x of original)
+                    scaleFactor = math.max(scaleFactor, 0.5)
+                    
+                    -- Recursively shrink all FontStrings in the content frame
+                    local function ShrinkFontStrings(frame, scale)
+                        -- Check all regions (including FontStrings)
+                        local regions = {frame:GetRegions()}
+                        for _, region in ipairs(regions) do
+                            if region:IsObjectType("FontString") then
+                                local font, fontSize, flags = region:GetFont()
+                                if font and fontSize then
+                                    region:SetFont(font, fontSize * scale, flags)
+                                end
+                            end
+                        end
+                        
+                        -- Recursively check children
+                        local children = {frame:GetChildren()}
+                        for _, child in ipairs(children) do
+                            ShrinkFontStrings(child, scale)
+                        end
+                    end
+                    
+                    ShrinkFontStrings(contextMenuFrame.currentContent, scaleFactor)
+                    
+                    -- Re-measure content height after font shrinking
+                    contentHeight = MeasureContentHeight(contextMenuFrame.currentContent)
+                    local finalMenuHeight = contentHeight + optionsListHeight + menuPadding
+                    contextMenuFrame:SetHeight(math.max(finalMenuHeight, 500))
+                end
+            else
+                -- Content fits, use calculated height
+                local menuHeight = contentHeight + optionsListHeight + menuPadding
+                menuHeight = math.max(menuHeight, 500)
+                contextMenuFrame:SetHeight(menuHeight)
+            end
+            
+            -- Update contentArea bottom anchor to prevent overlap with buttons
+            -- This must happen AFTER setting menu height
+            contextMenuFrame.contentArea:ClearAllPoints()
+            contextMenuFrame.contentArea:SetPoint("TOP", contextMenuFrame, "TOP", 0, -20)
+            contextMenuFrame.contentArea:SetPoint("BOTTOM", contextMenuFrame.optionsList, "TOP", 0, 0)
+            contextMenuFrame.contentArea:SetPoint("LEFT", contextMenuFrame, "LEFT", 10, 0)
+            contextMenuFrame.contentArea:SetPoint("RIGHT", contextMenuFrame, "RIGHT", -10, 0)
+            
+            -- Re-measure content height after contentArea is updated
+            local maxContentFrameHeight = contextMenuFrame.contentArea:GetHeight()
+            -- Add a buffer (20 pixels) to prevent cutting off the last line
+            -- This accounts for spacing, padding, and measurement inaccuracies
+            local bufferHeight = 20
+            local maxContentFrameHeightWithBuffer = maxContentFrameHeight + bufferHeight
+            local actualContentHeight = MeasureContentHeight(contextMenuFrame.currentContent)
+            
+            -- If content still overflows, apply additional font shrinking
+            if actualContentHeight > maxContentFrameHeightWithBuffer then
+                local additionalScaleFactor = maxContentFrameHeightWithBuffer / actualContentHeight
+                additionalScaleFactor = math.max(additionalScaleFactor, 0.5)
+                
+                -- Shrink fonts further if needed
+                if additionalScaleFactor < 1.0 then
+                    local function ShrinkFontStrings(frame, scale)
+                        local regions = {frame:GetRegions()}
+                        for _, region in ipairs(regions) do
+                            if region:IsObjectType("FontString") then
+                                local font, fontSize, flags = region:GetFont()
+                                if font and fontSize then
+                                    region:SetFont(font, fontSize * scale, flags)
+                                end
+                            end
+                        end
+                        local children = {frame:GetChildren()}
+                        for _, child in ipairs(children) do
+                            ShrinkFontStrings(child, scale)
+                        end
+                    end
+                    ShrinkFontStrings(contextMenuFrame.currentContent, additionalScaleFactor)
+                    
+                    -- Re-measure after additional shrinking
+                    actualContentHeight = MeasureContentHeight(contextMenuFrame.currentContent)
+                end
+                
+                -- Set explicit height to constrain (use buffer height to prevent cutoff)
+                -- Only clip if content is significantly larger than available space
+                if actualContentHeight > maxContentFrameHeightWithBuffer then
+                    contextMenuFrame.currentContent:SetHeight(maxContentFrameHeightWithBuffer)
+                    contextMenuFrame.currentContent:SetClipsChildren(true)
+                else
+                    -- Content fits with buffer, allow natural height
+                    contextMenuFrame.currentContent:SetClipsChildren(false)
+                end
+            else
+                -- Content fits within buffer, allow natural height
+                contextMenuFrame.currentContent:SetClipsChildren(false)
+            end
+        else
+            -- No content, use default height
+            local optionsListHeight = #contextMenuOptions * 35
+            local menuPadding = 60
+            contextMenuFrame:SetHeight(optionsListHeight + menuPadding + 200)  -- Default content area height
+        end
+        
         return
     end
     
-    -- Update item display
-    if itemInfo.itemIcon then
-        contextMenuFrame.itemIcon:SetTexture(itemInfo.itemIcon)
-    else
-        contextMenuFrame.itemIcon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-    end
-    
-    -- Get item quality and set colors
-    local itemQuality = nil
-    if itemInfo.bagID and itemInfo.slotID then
-        local containerInfo = C_Container.GetContainerItemInfo(itemInfo.bagID, itemInfo.slotID)
-        if containerInfo then
-            itemQuality = containerInfo.quality
-        end
-    elseif itemInfo.isEquipment then
-        itemQuality = GetInventoryItemQuality("player", itemInfo.slotID)
-    end
-    
-    -- If we don't have quality from container, try from item link
-    if not itemQuality and itemInfo.itemLink then
-        local _, _, quality = GetItemInfo(itemInfo.itemLink)
-        itemQuality = quality
-    end
-    
-    -- Set item name color based on quality
-    if itemQuality and itemQuality > 0 then
-        local r, g, b = GetItemQualityColor(itemQuality)
-        contextMenuFrame.itemName:SetTextColor(r, g, b, 1)
-    else
-        contextMenuFrame.itemName:SetTextColor(1, 1, 1, 1)  -- Default white
-    end
-    
-    -- Set icon border color based on quality
-    if itemQuality and itemQuality > 0 then
-        local r, g, b = GetItemQualityColor(itemQuality)
-        contextMenuFrame.iconBorder:SetVertexColor(r, g, b, 1)
-        contextMenuFrame.iconBorder:Show()
-    else
-        contextMenuFrame.iconBorder:Hide()
-    end
-    
-    if itemInfo.itemName then
-        contextMenuFrame.itemName:SetText(itemInfo.itemName)
-    else
-        contextMenuFrame.itemName:SetText("Unknown Item")
-    end
-    
-    -- Clear existing tooltip lines
-    for _, line in ipairs(contextMenuFrame.tooltipLines) do
-        line:Hide()
-    end
-    wipe(contextMenuFrame.tooltipLines)
-    
-    -- Get tooltip data and display it
-    local tooltipData = nil
-    if itemInfo.bagID and itemInfo.slotID then
-        tooltipData = C_TooltipInfo.GetBagItem(itemInfo.bagID, itemInfo.slotID)
-    elseif itemInfo.isEquipment then
-        tooltipData = C_TooltipInfo.GetInventoryItem("player", itemInfo.slotID)
-    else
-        tooltipData = C_TooltipInfo.GetHyperlink(itemInfo.itemLink)
-    end
-    
-    -- Display tooltip lines with dynamic sizing
-    if tooltipData and tooltipData.lines then
-        local contentFrame = contextMenuFrame.tooltipContent
-        local spacing = 2
-        
-        -- Calculate available screen height
-        local screenHeight = GetScreenHeight()
-        local itemDisplayHeight = contextMenuFrame.itemDisplay:GetHeight()
-        local optionsListHeight = contextMenuFrame.optionsList:GetHeight()
-        local menuPadding = 40  -- Top and bottom padding
-        local maxTooltipHeight = screenHeight - itemDisplayHeight - optionsListHeight - menuPadding
-        
-        -- First pass: create all lines with default font size (1.5x)
-        local baseFont, baseFontHeight, baseFlags = GameFontNormal:GetFont()
-        local defaultFontHeight = baseFontHeight * 1.5
-        local fontHeight = defaultFontHeight
-        local currentY = 0
-        local displayedLineIndex = 0
-        local linesToDisplay = {}
-        
-        -- Collect lines to display (skip item name)
-        for i, lineData in ipairs(tooltipData.lines) do
-            local text = lineData.leftText or ""
-            if not (i == 1 and text == itemInfo.itemName) then
-                displayedLineIndex = displayedLineIndex + 1
-                table.insert(linesToDisplay, {
-                    data = lineData,
-                    index = displayedLineIndex
-                })
-            end
-        end
-        
-        -- Try to fit with default font size first
-        local needsResize = false
-        local actualContentHeight = 0
-        
-        -- Calculate content height with default font
-        for _, lineInfo in ipairs(linesToDisplay) do
-            local line = contextMenuFrame.tooltipLines[lineInfo.index]
-            if not line then
-                line = contentFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-                table.insert(contextMenuFrame.tooltipLines, line)
-            end
-            
-            line:SetFont(baseFont, defaultFontHeight, baseFlags)
-            line:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 0, 0)
-            line:SetPoint("RIGHT", contentFrame, "RIGHT", 0, 0)
-            line:SetJustifyH("LEFT")
-            line:SetJustifyV("TOP")
-            line:SetNonSpaceWrap(true)
-            line:SetText(lineInfo.data.leftText or "")
-            
-            local lineHeight = line:GetHeight()
-            actualContentHeight = actualContentHeight + lineHeight + spacing
-        end
-        
-        -- If content is too tall, reduce font size
-        if actualContentHeight > maxTooltipHeight then
-            needsResize = true
-            -- Calculate scale factor
-            local scaleFactor = maxTooltipHeight / actualContentHeight
-            fontHeight = defaultFontHeight * scaleFactor
-            -- Ensure minimum readable font size (at least 0.5x of default)
-            if fontHeight < baseFontHeight * 0.5 then
-                fontHeight = baseFontHeight * 0.5
-            end
-        end
-        
-        -- Second pass: position and display lines with calculated font size
-        currentY = 0
-        for _, lineInfo in ipairs(linesToDisplay) do
-            local line = contextMenuFrame.tooltipLines[lineInfo.index]
-            
-            -- Set font size
-            line:SetFont(baseFont, fontHeight, baseFlags)
-            
-            line:SetPoint("TOPLEFT", contentFrame, "TOPLEFT", 0, -currentY)
-            line:SetPoint("RIGHT", contentFrame, "RIGHT", 0, 0)
-            line:SetJustifyH("LEFT")
-            line:SetJustifyV("TOP")
-            line:SetNonSpaceWrap(true)
-            
-            -- Set text and color
-            local text = lineInfo.data.leftText or ""
-            if lineInfo.data.leftColor then
-                line:SetTextColor(lineInfo.data.leftColor.r, lineInfo.data.leftColor.g, lineInfo.data.leftColor.b, lineInfo.data.leftColor.a or 1)
-            else
-                line:SetTextColor(1, 1, 1, 1)  -- Default white
-            end
-            line:SetText(text)
-            line:Show()
-            
-            -- Get actual height after text is set
-            local lineHeightActual = line:GetHeight()
-            currentY = currentY + lineHeightActual + spacing
-        end
-        
-        -- Hide unused lines
-        for i = #linesToDisplay + 1, #contextMenuFrame.tooltipLines do
-            contextMenuFrame.tooltipLines[i]:Hide()
-        end
-        
-        -- Update content frame height
-        contentFrame:SetHeight(currentY)
-        
-        -- Calculate and set menu height (expand up to screen height)
-        local tooltipAreaHeight = math.min(currentY + 20, maxTooltipHeight)  -- Add padding
-        local menuHeight = itemDisplayHeight + tooltipAreaHeight + optionsListHeight + menuPadding
-        menuHeight = math.min(menuHeight, screenHeight - 20)  -- Leave some margin from screen edges
-        menuHeight = math.max(menuHeight, 500)  -- Minimum height
-        
-        -- Update menu size
-        contextMenuFrame:SetHeight(menuHeight)
-        
-        -- Update tooltip area bottom anchor to fill available space
-        contextMenuFrame.tooltipArea:ClearAllPoints()
-        contextMenuFrame.tooltipArea:SetPoint("TOP", contextMenuFrame.itemDisplay, "BOTTOM", 0, 0)
-        contextMenuFrame.tooltipArea:SetPoint("BOTTOM", contextMenuFrame.optionsList, "TOP", 0, 0)
-        contextMenuFrame.tooltipArea:SetPoint("LEFT", contextMenuFrame, "LEFT", 10, 0)
-        contextMenuFrame.tooltipArea:SetPoint("RIGHT", contextMenuFrame, "RIGHT", -10, 0)
-    else
-        -- No tooltip data, use default menu height
-        contextMenuFrame:SetHeight(500)
-    end
-    
-    -- Build and display options
-    contextMenuOptions = BuildMenuOptions(itemInfo)
-    
-    -- Clear existing option buttons
-    for _, button in ipairs(contextMenuFrame.optionButtons) do
-        button:Hide()
-    end
-    wipe(contextMenuFrame.optionButtons)
-    
-    if #contextMenuOptions == 0 then
-        -- No options available
-        local noOptionsText = contextMenuFrame.optionsList:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        noOptionsText:SetPoint("CENTER", contextMenuFrame.optionsList, "CENTER", 0, 0)
-        noOptionsText:SetText("No actions available")
-        table.insert(contextMenuFrame.optionButtons, noOptionsText)
-    else
-        -- Create option buttons
-        local buttonHeight = 30
-        local spacing = 5
-        local startY = 0
-        
-        for i, option in ipairs(contextMenuOptions) do
-            local button = CreateFrame("Frame", nil, contextMenuFrame.optionsList)
-            button:SetSize(320, buttonHeight)  -- Reduced to match new width
-            -- Position from bottom, growing upward
-            button:SetPoint("BOTTOM", contextMenuFrame.optionsList, "BOTTOM", 0, startY + (i - 1) * (buttonHeight + spacing))
-            
-            -- Button background
-            local bg = button:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints(button)
-            bg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
-            button.bg = bg
-            
-            -- Highlight for selected option
-            local highlight = button:CreateTexture(nil, "OVERLAY")
-            highlight:SetAllPoints(button)
-            highlight:SetColorTexture(1, 1, 0, 0.3)
-            highlight:Hide()
-            button.highlight = highlight
-            
-            -- Option text
-            local text = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-            text:SetPoint("LEFT", button, "LEFT", 10, 0)
-            text:SetText(option.text)
-            button.text = text
-            
-            button.option = option
-            button.index = i
-            table.insert(contextMenuFrame.optionButtons, button)
-        end
-    end
-    
-    -- Reset selection to first option
-    contextMenuSelectedIndex = 1
-    UpdateContextMenuSelection()
+    -- No context menu data available - hide menu
+    contextMenuFrame:Hide()
+    contextMenuActive = false
 end
 
 -- Handle context menu navigation
@@ -1242,8 +1442,8 @@ local function HandleContextMenuSelect()
     end
 end
 
--- Show context menu
-local function ShowContextMenu()
+-- Show context menu (implementation)
+ShowContextMenu = function()
     if not currentSelection then
         return
     end
@@ -1252,9 +1452,18 @@ local function ShowContextMenu()
         contextMenuFrame = CreateContextMenu()
     end
     
+    -- Update the menu content
     UpdateContextMenu()
-    contextMenuFrame:Show()
-    contextMenuActive = true
+    
+    -- Only show if we have options or content to display
+    if contextMenuOptions and #contextMenuOptions > 0 then
+        contextMenuFrame:Show()
+        contextMenuActive = true
+    elseif currentSelection.factionID or currentSelection.factionData then
+        -- Even if no options, show menu if it's a reputation entry (might have description)
+        contextMenuFrame:Show()
+        contextMenuActive = true
+    end
 end
 
 -- Hide context menu
@@ -1499,13 +1708,40 @@ function InterfaceCursor:Initialize()
             return
         end
         
+        -- Handle B button to close panels (only if no context menu or dialog popup is active)
+        if (buttonStr == BUTTON_B or buttonStr == "PAD2") and not contextMenuActive and not dialogPopupActive then
+            -- Close the currently focused panel first
+            if currentPanel then
+                if currentPanel:IsPanelOpen() then
+                    currentPanel:ClosePanel()
+                    return
+                end
+            end
+            
+            -- Fallback: close any open panel if cursor isn't focused on one
+            if SteamDeckPanels.leftPanel and SteamDeckPanels.leftPanel:IsPanelOpen() then
+                SteamDeckPanels.leftPanel:ClosePanel()
+                return
+            end
+            if SteamDeckPanels.rightPanel and SteamDeckPanels.rightPanel:IsPanelOpen() then
+                SteamDeckPanels.rightPanel:ClosePanel()
+                return
+            end
+        end
+        
         -- Handle Y button to open context menu
         if (buttonStr == BUTTON_Y or buttonStr == "PAD4") and currentSelection then
             ShowContextMenu()
             return
         end
         
-        -- Handle X button for item usage
+        -- Handle A button for item usage and button clicks
+        if (buttonStr == BUTTON_A or buttonStr == "PAD1") and currentSelection then
+            HandleItemUse()
+            return
+        end
+        
+        -- Handle X button for item usage (legacy, keeping for backwards compatibility)
         if (buttonStr == BUTTON_X or buttonStr == "PAD3") and currentSelection then
             HandleItemUse()
             return

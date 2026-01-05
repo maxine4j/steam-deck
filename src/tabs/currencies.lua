@@ -643,6 +643,9 @@ function CurrenciesTab:Initialize(panel, contentFrame)
     container.UpdateCurrency = UpdateCurrency
     self.content.currencyContainer = container
     
+    -- Store scroll frame reference for auto-scrolling
+    self.rightScrollFrame = rightScrollFrame
+    
     -- Register for currency update events
     self.eventFrame = CreateFrame("Frame")
     self.eventFrame:RegisterEvent("CURRENCY_DISPLAY_UPDATE")

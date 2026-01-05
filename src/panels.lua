@@ -281,11 +281,29 @@ function SteamDeckPanels:OpenPanelToTab(tabId)
 end
 
 function SteamDeckPanels:ClosePanel()
-    -- Deactivate cursor when panel closes
-    if SteamDeckInterfaceCursorModule then
-        SteamDeckInterfaceCursorModule:Deactivate()
-    end
+    -- Hide the panel first
     self.frame:Hide()
+    
+    -- Check if another panel is still open and activate cursor on it
+    local otherPanel = nil
+    if self == SteamDeckPanels.leftPanel then
+        otherPanel = SteamDeckPanels.rightPanel
+    elseif self == SteamDeckPanels.rightPanel then
+        otherPanel = SteamDeckPanels.leftPanel
+    end
+    
+    -- If another panel is open, activate cursor on its active tab
+    if otherPanel and otherPanel:IsPanelOpen() and otherPanel.activeTabId then
+        local tab = otherPanel.tabs[otherPanel.activeTabId]
+        if tab and tab.module and tab.module.GetNavGrid and SteamDeckInterfaceCursorModule then
+            SteamDeckInterfaceCursorModule:Activate(tab.module)
+        end
+    else
+        -- No other panel open, deactivate cursor
+        if SteamDeckInterfaceCursorModule then
+            SteamDeckInterfaceCursorModule:Deactivate()
+        end
+    end
 end
 
 function SteamDeckPanels:TogglePanel()

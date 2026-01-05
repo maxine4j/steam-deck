@@ -668,6 +668,9 @@ function ReputationTab:Initialize(panel, contentFrame)
     container.UpdateReputation = UpdateReputation
     self.content.reputationContainer = container
     
+    -- Store scroll frame reference for auto-scrolling
+    self.rightScrollFrame = rightScrollFrame
+    
     -- Register for reputation update events
     self.eventFrame = CreateFrame("Frame")
     self.eventFrame:RegisterEvent("UPDATE_FACTION")
@@ -735,6 +738,226 @@ function ReputationTab:GetNavGrid()
     end
     
     return grid, slotToPosition
+end
+
+-- Get reputation info from selection
+local function GetReputationInfoFromSelection(selection)
+    if not selection then
+        return nil
+    end
+    
+    local factionID = nil
+    local factionIndex = nil
+    
+    -- Check if selection has factionID and factionIndex directly
+    if selection.factionID and selection.factionIndex then
+        factionID = selection.factionID
+        factionIndex = selection.factionIndex
+    -- Or check if it has factionData
+    elseif selection.factionData then
+        if selection.factionData.factionID then
+            factionID = selection.factionData.factionID
+            factionIndex = selection.factionData.factionIndex
+        elseif type(selection.factionData) == "table" then
+            -- Try to get factionIndex from the stored factionData
+            factionIndex = selection.factionIndex
+            if factionIndex then
+                local tempFactionData = C_Reputation.GetFactionDataByIndex(factionIndex)
+                if tempFactionData then
+                    factionID = tempFactionData.factionID
+                end
+            end
+        end
+    end
+    
+    if factionID and factionIndex then
+        local factionData = C_Reputation.GetFactionDataByIndex(factionIndex)
+        if factionData and not factionData.isHeader then
+            return {
+                factionID = factionID,
+                factionIndex = factionIndex,
+                factionData = factionData,
+                name = factionData.name or "Unknown Faction",
+                description = factionData.description or "",
+                isHeader = factionData.isHeader or false,
+                canToggleAtWar = factionData.canToggleAtWar or false,
+                atWarWith = factionData.atWarWith or false,
+                canSetInactive = factionData.canSetInactive or false,
+                isActive = C_Reputation.IsFactionActive(factionIndex),
+                isWatched = factionData.isWatched or false,
+                isMajorFaction = C_Reputation.IsMajorFaction(factionID),
+            }
+        end
+    end
+    
+    -- Fallback: if we have factionIndex directly on the selection, try using it
+    if selection.factionIndex then
+        local factionData = C_Reputation.GetFactionDataByIndex(selection.factionIndex)
+        if factionData and not factionData.isHeader then
+            return {
+                factionID = factionData.factionID or 0,
+                factionIndex = selection.factionIndex,
+                factionData = factionData,
+                name = factionData.name or "Unknown Faction",
+                description = factionData.description or "",
+                isHeader = factionData.isHeader or false,
+                canToggleAtWar = factionData.canToggleAtWar or false,
+                atWarWith = factionData.atWarWith or false,
+                canSetInactive = factionData.canSetInactive or false,
+                isActive = C_Reputation.IsFactionActive(selection.factionIndex),
+                isWatched = factionData.isWatched or false,
+                isMajorFaction = C_Reputation.IsMajorFaction(factionData.factionID or 0),
+            }
+        end
+    end
+    
+    return nil
+end
+
+-- Build menu options for reputation entries
+local function BuildReputationMenuOptions(repInfo)
+    local options = {}
+    
+    if not repInfo or repInfo.isHeader then
+        return options
+    end
+    
+    -- Show Details option (selects the faction, similar to clicking in default UI)
+    table.insert(options, {
+        text = "Show Details",
+        action = function()
+            C_Reputation.SetSelectedFaction(repInfo.factionIndex)
+        end
+    })
+    
+    -- At War toggle (if applicable)
+    if repInfo.canToggleAtWar then
+        table.insert(options, {
+            text = repInfo.atWarWith and "Stop War" or "At War",
+            action = function()
+                C_Reputation.ToggleFactionAtWar(repInfo.factionIndex)
+            end
+        })
+    end
+    
+    -- Make Inactive/Active toggle (if applicable)
+    if repInfo.canSetInactive then
+        table.insert(options, {
+            text = repInfo.isActive and "Make Inactive" or "Make Active",
+            action = function()
+                C_Reputation.SetFactionActive(repInfo.factionIndex, not repInfo.isActive)
+            end
+        })
+    end
+    
+    -- Watch Faction toggle
+    table.insert(options, {
+        text = repInfo.isWatched and "Unwatch Faction" or "Watch Faction",
+        action = function()
+            C_QuestLog.SetWatchedFaction(repInfo.factionIndex, not repInfo.isWatched)
+        end
+    })
+    
+    -- View Renown (for major factions)
+    if repInfo.isMajorFaction then
+        table.insert(options, {
+            text = "View Renown",
+            action = function()
+                MajorFactions_LoadUI()
+                ToggleMajorFactionRenown(repInfo.factionID)
+            end
+        })
+    end
+    
+    return options
+end
+
+-- Get context menu data for a selected reputation entry
+-- selection: The selected frame/entry
+-- Returns: {content, options} or nil if not applicable
+function ReputationTab:GetContextMenuForSelection(selection)
+    if not selection then
+        return nil
+    end
+    
+    -- Check if it's a reputation entry (has factionID or factionIndex)
+    if not selection.factionID and not selection.factionIndex then
+        return nil
+    end
+    
+    -- Get reputation info
+    local repInfo = GetReputationInfoFromSelection(selection)
+    if not repInfo or repInfo.isHeader then
+        return nil
+    end
+    
+    -- Create content frame
+    local content = CreateFrame("Frame", nil, nil)
+    content:SetSize(340, 100)  -- Will be resized based on content
+    
+    -- Item display area (top section)
+    local itemDisplay = CreateFrame("Frame", nil, content)
+    itemDisplay:SetSize(340, 80)
+    itemDisplay:SetPoint("TOP", content, "TOP", 0, 0)
+    content.itemDisplay = itemDisplay
+    
+    -- Item icon with border
+    local itemIconBg = CreateFrame("Frame", nil, itemDisplay)
+    itemIconBg:SetSize(64, 64)
+    itemIconBg:SetPoint("TOPLEFT", itemDisplay, "TOPLEFT", 10, 0)
+    
+    local itemIconTexture = itemIconBg:CreateTexture(nil, "ARTWORK")
+    itemIconTexture:SetSize(60, 60)
+    itemIconTexture:SetPoint("CENTER", itemIconBg, "CENTER", 0, 0)
+    itemIconTexture:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+    
+    -- Item name
+    local itemNameText = itemDisplay:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+    itemNameText:SetPoint("LEFT", itemIconBg, "RIGHT", 10, 0)
+    itemNameText:SetPoint("RIGHT", itemDisplay, "RIGHT", -10, 0)
+    itemNameText:SetJustifyH("LEFT")
+    itemNameText:SetText(repInfo.name)
+    itemNameText:SetTextColor(1, 1, 1)  -- White for reputation
+    
+    -- Description area
+    local descriptionArea = CreateFrame("Frame", nil, content)
+    descriptionArea:SetPoint("TOP", itemDisplay, "BOTTOM", 0, 0)
+    descriptionArea:SetPoint("LEFT", content, "LEFT", 10, 0)
+    descriptionArea:SetPoint("RIGHT", content, "RIGHT", -10, 0)
+    content.descriptionArea = descriptionArea
+    
+    -- Display description
+    if repInfo.description and repInfo.description ~= "" then
+        local baseFont, baseFontHeight, baseFlags = GameFontNormal:GetFont()
+        local defaultFontHeight = baseFontHeight * 1.5
+        
+        local descriptionText = descriptionArea:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        descriptionText:SetFont(baseFont, defaultFontHeight, baseFlags)
+        descriptionText:SetPoint("TOPLEFT", descriptionArea, "TOPLEFT", 0, 0)
+        descriptionText:SetPoint("RIGHT", descriptionArea, "RIGHT", 0, 0)
+        descriptionText:SetJustifyH("LEFT")
+        descriptionText:SetJustifyV("TOP")
+        descriptionText:SetNonSpaceWrap(true)
+        descriptionText:SetText(repInfo.description)
+        descriptionText:Show()
+        
+        descriptionArea:SetHeight(descriptionText:GetHeight())
+    else
+        descriptionArea:SetHeight(0)
+    end
+    
+    -- Set content height
+    local contentHeight = itemDisplay:GetHeight() + descriptionArea:GetHeight()
+    content:SetHeight(contentHeight)
+    
+    -- Build menu options
+    local options = BuildReputationMenuOptions(repInfo)
+    
+    -- Return menu data structure
+    return {
+        content = content,
+        options = options
+    }
 end
 
 return ReputationTab
