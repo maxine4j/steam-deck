@@ -169,7 +169,7 @@ function CurrenciesTab:Initialize(panel, contentFrame)
     local tab = self
     
     -- Set tab properties
-    self.id = "currencies"
+    self.tabId = "currencies"
     self.name = "Currencies"
     self.panel = panel
     self.content = contentFrame

@@ -81,7 +81,7 @@ function SteamDeckPanels:CreatePanel(panelId, side, width, tabs)
     panel.activeTabId = nil
 
     for _, tabModule in ipairs(tabs) do
-        panel:RegisterTab(panel, tabModule)
+        panel:RegisterTab(tabModule)
     end
 
     return panel
@@ -139,7 +139,7 @@ function SteamDeckPanels:RegisterTab(tabModule)
     
     -- Tab click handler (set after we have tabId)
     tabButton:SetScript("OnClick", function()
-        self:SetActiveTab(tabModule.id)
+        self:SetActiveTab(tabModule.tabId)
     end)
 
     -- Update tab button text with actual name/id after Initialize
@@ -154,9 +154,9 @@ function SteamDeckPanels:RegisterTab(tabModule)
     -- Reposition tabs
     self:RepositionTabButtons()
 
-    self.tabs[tabModule.id] = {
+    self.tabs[tabModule.tabId] = {
         order = #self.tabs,
-        id = tabModule.id,
+        tabId = tabModule.tabId,
         module = tabModule,
         button = tabButton,
         content = contentFrame,

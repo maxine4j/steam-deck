@@ -279,7 +279,7 @@ function ReputationTab:Initialize(panel, contentFrame)
     local tab = self
     
     -- Set tab properties
-    self.id = "reputation"
+    self.tabId = "reputation"
     self.name = "Reputation"
     self.panel = panel
     self.content = contentFrame

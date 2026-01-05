@@ -283,7 +283,7 @@ function EquipmentTab:Initialize(panel, contentFrame)
     local tab = self
     
     -- Set tab properties
-    self.id = "equipment"
+    self.tabId = "equipment"
     self.name = "Equipment"
     self.panel = panel
     self.content = contentFrame
@@ -291,14 +291,14 @@ function EquipmentTab:Initialize(panel, contentFrame)
     self.modelScene = nil
     
     -- Apply overrides immediately
-    OverrideCharacterFunction(self.panel, self.id)
+    OverrideCharacterFunction(self.panel, self.tabId)
     HideDefaultCharacter()
 
     -- Re-apply overrides on PLAYER_LOGIN
     local loginFrame = CreateFrame("Frame")
     loginFrame:RegisterEvent("PLAYER_LOGIN")
     loginFrame:SetScript("OnEvent", function()
-        OverrideCharacterFunction(self.panel, self.id)
+        OverrideCharacterFunction(self.panel, self.tabId)
     end)
     
     -- Get actual content frame width

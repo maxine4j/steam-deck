@@ -472,7 +472,7 @@ end
 
 -- Initialize the tab
 function BagsTab:Initialize(panel, contentFrame)
-    self.id = "bags"
+    self.tabId = "bags"
     self.name = "Bags"
     self.panel = panel
     self.content = contentFrame
@@ -491,7 +491,7 @@ function BagsTab:Initialize(panel, contentFrame)
         end
     end)
 
-    OverrideBagFunctions(panel, self.id)
+    OverrideBagFunctions(panel, self.tabId)
     HideAllDefaultBags()
 
     -- Hook into container frame Show methods
@@ -517,7 +517,7 @@ function BagsTab:Initialize(panel, contentFrame)
     local loginFrame = CreateFrame("Frame")
     loginFrame:RegisterEvent("PLAYER_LOGIN")
     loginFrame:SetScript("OnEvent", function()
-        OverrideBagFunctions(panel, self.id)
+        OverrideBagFunctions(panel, self.tabId)
     end)
 end
 
